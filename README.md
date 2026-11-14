@@ -1,214 +1,190 @@
-# GreenTokens Core
+# GreenTokens
 
-GreenTokens orchestrates approved compute workloads on a local trusted Ray
-runtime. Milestones 0–1 provide the CPU smoke test; Milestones 2–3 add a FastAPI
-job API, durable MySQL records, a Ray Jobs dispatcher/reconciler, and verified
-S3 artifacts in SeaweedFS. This is a local development pilot with a deliberately
-limited identity stub; production startup is blocked.
+GreenTokens is a compute platform for submitting approved workloads, monitoring execution, and retrieving results. The customer application is the first frontend deliverable. A hardware-provider application is planned separately.
 
-Start the implemented pipeline from PowerShell (Docker Desktop must be running):
+## Project scope
+
+The existing local backend uses FastAPI, MySQL, Ray Jobs/Core, and S3-compatible storage (SeaweedFS in development). The initial workload is `sum_numbers_v1`, executed on a trusted local CPU worker. The backend source and local setup instructions are included in this repository. The pipeline has been tested in the core developer's local environment.
+
+**First deliverable:** A customer can submit `[1, 2, 3, 4]`, receive a job ID, follow its actual status, and view the result `10`. The complete customer MVP will also accept an uploaded JSON input file and support job history, results, logs, cancellation, and usage information.
+
+Public accounts, GPU workloads, payments, provider agents, and installer software are outside the current customer MVP. Any provider screens are prototypes until backend support exists.
+
+## Team ownership
+
+| Area | Owner | Deliverables | Primary files |
+| --- | --- | --- | --- |
+| Customer interface | **Frontend A** | Navigation, dashboard, submission form, job detail, results, usage, settings, responsive styles, accessibility | `apps/customer_dashboard/` pages, components, styles |
+| Frontend integration | **Frontend B** | API contracts/client, local proxy, mock fixtures, job polling, browser-local job IDs, identity switching, error handling, integration tests | `apps/customer_dashboard/` API, state, test modules |
+| Backend | **Core developer** | Existing source and setup, API behavior, job execution, storage, resource policy, provider-agent work | `core/`, `scripts/`, `infrastructure/`, backend docs |
+| Final integration | **Frontend A + B** | Connect components to real data, test end-to-end flows, review and document the demo | Shared |
+
+**Handoff between A and B:** Frontend B defines typed response contracts and exposes adapter functions. Frontend A uses those functions through agreed component interfaces; neither developer changes the other's modules without coordination. The core developer owns backend modifications.
+
+## Delivery order
+
+| Priority | Deliverable | Acceptance |
+| --- | --- | --- |
+| **P0** | Local customer dashboard + inline job | A real `sum_numbers_v1` submission returns `10` through the frontend |
+| **P1** | Complete customer MVP | JSON upload, recent jobs, results/artifacts, cancellation, usage, and identity isolation work |
+| **P1** | Quality and documentation | Tested error cases, accessible layouts, reproducible setup, screenshots, and demo walkthrough |
+| **P2** | Provider interface prototype | Clearly simulated onboarding, hardware, preferences, and pause states |
+
+## Task checklist
+
+### P0 — Repository and setup
+
+- [x] **Core:** Add the existing backend code, `AGENTS.md`, `docs/applications-handoff.md`, and local setup documentation to the shared repository. Exclude credentials, `.env`, `.venv`, storage volumes, and private datasets.
+- [x] **Core:** Confirm the backend API contract and the command for starting the local stack.
+- [ ] **A + B:** Agree on `apps/customer_dashboard/`, the framework and approved dependencies. The handoff proposes Next.js, React, and TypeScript; check project rules before installing packages.
+- [ ] **A + B:** Use separate feature branches and review changes before merging. Agree on component props and adapter function signatures.
+- [ ] **B:** Start the backend in an approved local environment and verify `GET /health`. The backend developer's `127.0.0.1` is not accessible from another computer.
+- [ ] **B:** Create run instructions for the frontend, including required environment setup and how to switch between mock and live modes.
+
+### P0 — Customer screens (Frontend A)
+
+- [ ] Create the app shell with persistent navigation and a prominent **New job** action.
+- [ ] Build the **Dashboard** with recent browser-known jobs, status labels, and a link to each job.
+- [ ] Build **New job** with the single supported template, `sum_numbers_v1`, and an inline integer-input form.
+- [ ] Validate 1–1,000 integers, each from -1,000,000,000 to 1,000,000,000; reject non-integers and malformed input before submission.
+- [ ] Display the initial resource configuration: 1 CPU core, 0.125 GB RAM, 0 GPUs, `trusted_cpu`, 60-second maximum runtime. Do not expose unsupported resource controls.
+- [ ] Build **Job detail** with job ID, actual status, attempts, timestamps, errors, and cancellation state.
+- [ ] Build **Results** with the returned value and available artifact/log links.
+- [ ] Add explicit **Local development - identity stub** and **Mock/Live** indicators.
+- [ ] Provide keyboard-accessible controls, visible focus, field errors, text-based statuses, and usable narrow-screen layouts.
+
+### P0 — API and state (Frontend B)
+
+- [ ] Define TypeScript types for job submission, job detail, statuses, attempts, artifacts, results, and usage, matched to the backend implementation.
+- [ ] Build separate mock and live implementations behind one typed client interface. Mock responses must never be displayed as live jobs.
+- [ ] Implement a same-origin frontend server proxy (for example, `/api/core/...`) targeting only `http://127.0.0.1:8000`. Allowlist paths and HTTP methods, validate IDs, limit request sizes, and preserve upstream status/content type.
+- [ ] Attach `X-Dev-User` with the selected development identity (`alice` or `bob`) to backend requests. Do not place `organization_id` in submission payloads.
+- [ ] Implement `POST /v1/jobs` using a new `idempotency_key` per distinct submission. Preserve the identical key **and body** when retrying an uncertain response.
+- [ ] Keep the actual `job_id` returned by the backend and load `GET /v1/jobs/{id}`; do not invent an ID or status.
+- [ ] Poll active jobs approximately every 2 seconds; stop on terminal status, navigation, or identity change. Abort stale requests and back off on connection errors.
+- [ ] Fetch `GET /v1/jobs/{id}/result` after success. Normalize timezone-less API timestamps as UTC.
+- [ ] Save a bounded list of known job IDs per development identity in browser storage. Refetch details by ID on reload; there is no job-list endpoint.
+- [ ] Cancel in-flight requests and clear visible/cached data when switching identities before loading the newly selected identity's jobs.
+
+### P0 — First integration (Frontend A + B)
+
+- [ ] Connect the New Job form to the live submission adapter and display the backend's returned job ID.
+- [ ] Connect the detail view to actual job states: `QUEUED`, `DISPATCHING`, `RUNNING`, `SUCCEEDED`, `FAILED`, `CANCELLED`.
+- [ ] Submit `[1, 2, 3, 4]` through the frontend, wait for `SUCCEEDED`, and display the actual result `10`.
+- [ ] Refresh the job page and verify that the known job loads again from the API.
+- [ ] Switch from `alice` to `bob` and verify that Alice's visible job and result data are cleared.
+- [ ] Record the setup commands and a screenshot or short walkthrough of the live flow.
+
+### P1 — Uploads, artifacts, cancellation, and usage
+
+**Frontend A**
+
+- [ ] Add a JSON-file input option to New Job, with file-size and validation errors.
+- [ ] Add output download controls, artifact metadata (size, SHA-256, expiration), and plain-text log views.
+- [ ] Add a **Cancel job** action and a distinct **Cancellation requested** state.
+- [ ] Add **Recent jobs on this browser**, with appropriate empty and unavailable states.
+- [ ] Add **Usage** showing actual attempts and elapsed wall time, clearly marked nonbillable.
+- [ ] Add **Settings** with mock/live selection and development identity; no account profile or payment settings.
+
+**Frontend B**
+
+- [ ] Accept JSON input files of at most 65,536 bytes; validate their `values` content against the inline-input constraints.
+- [ ] Upload the file as raw JSON using `POST /v1/artifacts`, then submit the returned `input_artifact_id`. Do not use multipart form upload or combine file and inline input.
+- [ ] Do not automatically repeat an artifact upload if the response is uncertain; uploads have no idempotency contract.
+- [ ] Fetch output/input artifacts and text logs through `GET /v1/artifacts/{id}` using the same authorized proxy. Use safe download filenames and release temporary object URLs.
+- [ ] Call `POST /v1/jobs/{id}/cancel`; continue showing/polling the backend status until cancellation is confirmed.
+- [ ] Fetch `GET /v1/usage` and expose only returned `attempts`, `wall_seconds`, `billable`, and `measurement` values.
+- [ ] Handle expired outputs independently of job status: a completed job remains `SUCCEEDED` if its result is no longer available.
+
+**Joint acceptance**
+
+- [ ] Submit an uploaded JSON file containing `{"values":[1,2,3,4]}` and retrieve result `10` from the real backend.
+- [ ] Verify Alice's job, result, and artifact IDs are not accessible under Bob's identity (expected `404`).
+- [ ] Verify cancellation is presented as a request until the backend confirms the actual outcome.
+
+### P1 — Tests and release checks (Frontend A + B)
+
+- [ ] Test empty input, non-integers, out-of-range values, overlong arrays, invalid JSON, and oversized files.
+- [ ] Test submission outcomes: validation/resource rejection (`422`), idempotency conflict (`409`), and queue limit (`429`).
+- [ ] Test result/artifact states: result not ready (`409`), expiry (`410`), artifact failure (`502`), and inaccessible IDs (`404`).
+- [ ] Test offline mode, request timeouts, stalled polling, cancellation, and rapid navigation/identity changes.
+- [ ] Verify that pending requests do not update the UI after switching users or leaving a job page.
+- [ ] Verify that replaying the same submission key and body returns the same job ID after an uncertain response.
+- [ ] Verify that logs are rendered as text and no frontend bundle or network request exposes infrastructure credentials.
+- [ ] Check keyboard navigation, contrast, focus states, error messages, and responsive layout.
+- [ ] Run the approved frontend unit/integration/end-to-end checks; record actual results and known failures.
+- [ ] Review the final live flow together and include reproducible commands, screenshots, and outstanding limitations in the handoff.
+
+### P2 — Provider interface prototype (Frontend A; review with Core)
+
+Start this only after the customer MVP is accepted.
+
+- [ ] Design provider welcome and consent screens, including resource/privacy implications and unchecked consent.
+- [ ] Design simulated invitation/approval steps; do not imply that real provider accounts are available.
+- [ ] Design a hardware panel separating CPU, system RAM, GPU, VRAM, and free disk; label all mock values.
+- [ ] Design availability and resource-limit preferences with a simulated readiness check.
+- [ ] Design the provider home screen with a paused-by-default state, pause control, and offline/missing-agent states.
+- [ ] Label earnings **Unavailable during pilot**. A mock pause must not claim to stop real jobs.
+- [ ] Review pause semantics and future worker-agent API requirements with Core before any live integration.
+
+## Backend endpoints used by the customer app
+
+| Method | Endpoint | Use |
+| --- | --- | --- |
+| `GET` | `/health` | Local API/database health |
+| `POST` | `/v1/jobs` | Submit the approved CPU job |
+| `GET` | `/v1/jobs/{id}` | Job status, attempts, timestamps, errors, artifacts |
+| `GET` | `/v1/jobs/{id}/result` | Successful job output |
+| `POST` | `/v1/jobs/{id}/cancel` | Request cancellation |
+| `POST` | `/v1/artifacts` | Upload raw JSON input |
+| `GET` | `/v1/artifacts/{id}` | Retrieve authorized artifact or log |
+| `GET` | `/v1/usage` | Attempt count and elapsed wall time |
+| `GET` | `/openapi.json` | API reference (current responses/header documentation is incomplete) |
+
+The development API requires `X-Dev-User` for protected requests. The current backend has no browser CORS configuration; browser requests should use the local same-origin proxy. `GET /v1/jobs`, `/v1/job-templates`, `/v1/me`, and `/v1/provider/*` are not available. `/v1/workers` is admin diagnostics, not a customer screen.
+
+Example submission body:
+
+```json
+{
+  "template_id": "sum_numbers_v1",
+  "parameters": { "values": [1, 2, 3, 4] },
+  "requirements": {
+    "cpu_cores": 1,
+    "ram_gb": 0.125,
+    "gpus": 0,
+    "execution_class": "trusted_cpu",
+    "max_runtime_seconds": 60
+  },
+  "idempotency_key": "frontend-demo-001"
+}
+```
+
+Generate an appropriate key for each new submission; the example key is not a permanent shared value.
+
+## Local development
+
+For backend setup, follow `docs/local-development.md`. On the core developer's Windows environment, the documented command from the repository root is:
 
 ```powershell
 .\.venv\Scripts\python.exe -m scripts.local_stack
 ```
 
-Open <http://127.0.0.1:8000/docs>. See
-[local development](docs/local-development.md) for job submission, testing,
-shutdown, credentials, and limitations;
-[architecture](docs/architecture.md) and
-[security boundaries](docs/security-boundaries.md) describe the implementation.
+API documentation: `http://127.0.0.1:8000/docs`
+Schema: `http://127.0.0.1:8000/openapi.json`
 
-Frontend teammates: start with the [applications handoff](docs/applications-handoff.md),
-including its first-day checklist and verified API contract.
+The frontend toolchain and start command will be documented here after the package manifest is approved and committed. Do not copy virtual environments or credentials between machines.
 
-The remaining sections preserve the original Milestone 0–1 setup and validation.
+## Completion criteria
 
-## Initial environment inspection — November 14, 2026
+The customer MVP is ready for review when both input modes run successfully against the real backend, job and result data remain isolated between development identities, unsupported API calls are absent, error conditions have useful feedback, and a teammate can reproduce the demo using the written setup instructions. Frontend test results and a live walkthrough must accompany the handoff.
 
-| Item | Observed state |
-| --- | --- |
-| Workspace | Only `AGENTS.md`, `CLAUDE.md`, and `.clinerules/github-first.md` existed; no application code or dependency manifests to reuse. |
-| Git | `git status --short --branch` reports that this is not a Git repository. No repository was initialized. |
-| OS | Windows 11 Pro, build 10.0.26200, 64-bit; Python reports AMD64. |
-| Python | `python` runs CPython 3.12.10; `py -0p` reports no registered installations. Use `python`, not the launcher. |
-| Packages | Ray is absent. Global packages include SQLAlchemy 2.1.5 and PyMySQL 1.2.3; neither is needed for the smoke test. No project virtual environment exists. |
-| WSL | WSL2 is configured, but its only registered distribution is `docker-desktop` (stopped). Ubuntu is not installed. |
-| Docker | CLI 29.9.2 exists; the Linux engine connection fails because its named pipe is absent. |
-| MySQL | Two `mysqld` processes were observed. No matching Windows service was listed. Server version, ownership, and database connectivity remain unverified; no credentials were accessed. |
+## Backend implementation and handoff references
 
-Initial sandbox restrictions blocked WSL and OS queries. Approved read-only
-queries outside the sandbox established the OS, WSL, and Docker observations.
-Python version/package inspection and the Ray import-availability check succeeded.
-These observations describe the environment before installation. See the
-validation section below for subsequent execution results.
+- [Local development and API instructions](docs/local-development.md)
+- [Frontend teammate handoff](docs/applications-handoff.md)
+- [Architecture](docs/architecture.md) and [security boundaries](docs/security-boundaries.md)
+- [Recorded Milestone 2?3 validation](docs/validation-milestones-2-3.md)
+- [Original environment and Ray smoke-test setup](docs/core-setup-history.md)
 
-## Dependency decision
-
-One direct dependency is installed, along with its transitive packages, in a
-dedicated virtual environment rather than the global environment above.
-
-| Name | License | Last update evidence | Why |
-| --- | --- | --- | --- |
-| `ray[default]==2.60.0` | Apache-2.0 | Official release dated November 4, 2026 | Matches the blueprint and supplies Ray Core plus standard tooling. No Train, PyTorch, or GPU extras are needed. |
-| Python standard library | Included with Python | Existing Python 3.12.10 | `unittest`, `subprocess`, `socket`, and `os` cover testing and reporting without more direct dependencies. |
-
-[Ray's repository](https://github.com/ray-project/ray) displayed approximately
-44.3k stars and 2.8k open issues. Its
-[2.60.0 release](https://github.com/ray-project/ray/releases/tag/ray-2.60.0)
-contains recent fixes. These indicate ongoing maintenance, but issue resolution
-health was not independently audited. The retrieved commit-history page was
-cached from September 11, 2026, so the actual latest commit date is unverified.
-No competing framework is necessary for this explicitly Ray-based milestone.
-
-GitHub MCP and Context7 are unavailable in this session. Official documentation
-and read-only GitHub pages were used instead. The version-specific documentation
-URL could not be retrieved; the current official pages identify themselves as
-Ray 2.60.0. There is no existing project pin to preserve.
-
-[Ray installation documentation](https://docs.ray.io/en/latest/ray-overview/installation.html)
-lists Python 3.12 on Linux and Windows AMD64. Windows support is beta, and
-multi-node Windows clusters are untested. This verifies documented compatibility,
-not a successful installation on this computer.
-
-WSL2 Ubuntu/Linux remains the preferred development environment. For the first
-single-machine check, the smallest change is to use the existing Windows Python.
-The Windows route is used for this milestone; a separately approved Ubuntu setup
-remains an option for later development. Do not use Docker's internal WSL
-distribution for development.
-
-## Milestone 1 implementation
-
-The implementation consists of `scripts/ray_smoke_test.py`,
-`requirements-smoke.txt`, and `tests/test_ray_smoke.py`.
-
-1. Disable Ray usage reporting before startup. With no `RAY_ADDRESS`, start a
-   fresh local runtime through `ray.init(address="local", ...)`, disable the
-   dashboard, and configure local-only networking. Verify listening interfaces
-   during execution; do not assume disabling the dashboard isolates Ray's other
-   services. Do not open firewall ports.
-2. With an explicit `RAY_ADDRESS`, connect to that designated trusted cluster
-   using `ray.init(address=...)`; never silently fall back to a new cluster after
-   connection failure. Remote operation is outside this milestone's acceptance.
-3. Submit eight deterministic independent sum tasks before collecting results.
-   Each task requests one logical CPU and zero GPUs and returns its input/result,
-   hostname, process ID, and Ray node ID.
-4. Collect with `ray.get()` and a finite timeout; validate all eight results
-   against locally calculated expectations. Print logical cluster resources,
-   successful task count, and participating hostnames. Do not require eight
-   distinct processes or nodes: scheduling may reuse workers.
-5. Report failures visibly with a nonzero exit status and always call
-   `ray.shutdown()` in cleanup. Use a main guard for Windows subprocess behavior.
-6. Add one standard-library integration test that runs the script in a subprocess
-   with a timeout and verifies completion and the eight validated results. Run
-   the script twice to check repeatability, then run the test. Record actual
-   output and failures before declaring Milestone 1 complete.
-
-API references: [initialization](https://docs.ray.io/en/latest/ray-core/api/doc/ray.init.html)
-and [remote tasks](https://docs.ray.io/en/latest/ray-core/tasks.html).
-
-## Windows setup and run commands
-
-Run these in PowerShell from this workspace. Skip virtual-environment creation
-and installation when using the already prepared environment.
-`requirements-smoke.txt` pins `ray[default]==2.60.0`.
-
-```powershell
-Set-Location -LiteralPath 'C:\Users\kcody\OneDrive\Desktop\Greentokens core'
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements-smoke.txt
-.\.venv\Scripts\python.exe -m pip check
-Remove-Item Env:RAY_ADDRESS -ErrorAction SilentlyContinue
-$env:RAY_USAGE_STATS_ENABLED = '0'
-.\.venv\Scripts\python.exe scripts/ray_smoke_test.py
-.\.venv\Scripts\python.exe scripts/ray_smoke_test.py
-.\.venv\Scripts\python.exe -m unittest discover -s tests -p test_ray_smoke.py -v
-```
-
-Virtual-environment activation is unnecessary. Package installation needs network
-access; executing the local smoke workload must not require external services,
-API keys, Docker, MySQL, MinIO, or a GPU. The top-level Ray version is pinned;
-transitive dependencies are not yet locked.
-
-## Optional WSL2 route — separate installation approval required
-
-In PowerShell, first check the available distribution names, then install Ubuntu
-24.04 if listed, following
-[Microsoft's WSL instructions](https://learn.microsoft.com/en-us/windows/wsl/install):
-
-```powershell
-wsl --list --online
-wsl --install -d Ubuntu-24.04
-wsl -d Ubuntu-24.04
-```
-
-Complete Ubuntu's interactive account setup, then run in its shell after the
-Milestone 1 files exist:
-
-```bash
-sudo apt update
-sudo apt install python3.12-venv
-cd '/mnt/c/Users/kcody/OneDrive/Desktop/Greentokens core'
-python3.12 --version
-python3.12 -m venv "$HOME/.venvs/greentokens-smoke"
-"$HOME/.venvs/greentokens-smoke/bin/python" -m pip install -r requirements-smoke.txt
-"$HOME/.venvs/greentokens-smoke/bin/python" -m pip check
-unset RAY_ADDRESS
-export RAY_USAGE_STATS_ENABLED=0
-"$HOME/.venvs/greentokens-smoke/bin/python" scripts/ray_smoke_test.py
-"$HOME/.venvs/greentokens-smoke/bin/python" scripts/ray_smoke_test.py
-"$HOME/.venvs/greentokens-smoke/bin/python" -m unittest discover -s tests -p test_ray_smoke.py -v
-```
-
-Keep Linux and Windows virtual environments separate. This optional route is
-documented but has not been executed or verified on this machine.
-
-## Validation — November 14, 2026
-
-- Created `.venv` with Python 3.12.10 and installed the pinned requirements.
-- `python -m pip check` inside `.venv`: `No broken requirements found.`
-- Imported Ray and verified version `2.60.0`.
-- Ran `scripts/ray_smoke_test.py` twice: both exited 0 with eight validated results,
-  four worker processes, and one node on host `Cody`.
-- Ran `python -m unittest discover -s tests -p test_ray_smoke.py -v` inside
-  `.venv`: one integration test passed in 13.606 seconds. This executes the real
-  script in another subprocess, rather than mocking Ray.
-- During the first successful run, `netstat -ano -p tcp` showed the observed GCS,
-  raylet, and Python TCP listeners on `127.0.0.1`. This check covers that Windows
-  run, not future Linux or remote-cluster deployments.
-
-Actual second-run stdout (resource values, PIDs, and node IDs vary by run):
-
-```text
-Cluster resources: {'CPU': 4.0, 'node:127.0.0.1': 1.0, 'memory': 457499034.0, 'node:__internal_head__': 1.0, 'object_store_memory': 196071014.0}
-Available resources: {'CPU': 4.0, 'node:127.0.0.1': 1.0, 'memory': 457499034.0, 'node:__internal_head__': 1.0, 'object_store_memory': 196071014.0}
-Task input=10000 result=50005000 hostname=Cody pid=3932 node_id=9641e26011a53a1fd43756b435a38c357e9cf576a9a3721f3a92bbc3
-Task input=20000 result=200010000 hostname=Cody pid=27528 node_id=9641e26011a53a1fd43756b435a38c357e9cf576a9a3721f3a92bbc3
-Task input=30000 result=450015000 hostname=Cody pid=29288 node_id=9641e26011a53a1fd43756b435a38c357e9cf576a9a3721f3a92bbc3
-Task input=40000 result=800020000 hostname=Cody pid=15320 node_id=9641e26011a53a1fd43756b435a38c357e9cf576a9a3721f3a92bbc3
-Task input=50000 result=1250025000 hostname=Cody pid=15320 node_id=9641e26011a53a1fd43756b435a38c357e9cf576a9a3721f3a92bbc3
-Task input=60000 result=1800030000 hostname=Cody pid=15320 node_id=9641e26011a53a1fd43756b435a38c357e9cf576a9a3721f3a92bbc3
-Task input=70000 result=2450035000 hostname=Cody pid=29288 node_id=9641e26011a53a1fd43756b435a38c357e9cf576a9a3721f3a92bbc3
-Task input=80000 result=3200040000 hostname=Cody pid=27528 node_id=9641e26011a53a1fd43756b435a38c357e9cf576a9a3721f3a92bbc3
-Successful tasks: 8/8
-Hostnames: ['Cody']
-Distinct worker PIDs: 4
-Distinct node IDs: 1
-SMOKE TEST PASSED
-```
-
-The initial sandboxed pip attempt failed with Windows socket error 10013. The
-approved network-enabled installation succeeded. The initial sandboxed smoke
-run exited 1 because access to `C:\Users\kcody\.ray` was denied; both subsequent
-direct runs and the integration test succeeded outside the sandbox. No firewall
-rules were changed. Usage reporting is disabled before Ray is imported.
-
-Milestone 1 is proven on this Windows machine. Remote `RAY_ADDRESS` execution,
-WSL, and multi-node behavior have not been tested. Windows remains a beta Ray
-platform; later cluster development should use the planned supported Linux setup.
-
-## Next milestone
-
-Milestones 2–3 are implemented; see [the checklist](docs/milestone-checklist.md).
-Milestone 4 requires four explicitly authorized machines, private networking,
-hardware discovery, worker pause/loss handling, and bounded retries. It has not
-been started. Dashboards, training, billing, and public onboarding remain later work.
+The backend uses a local development identity stub. Production startup is blocked; real authentication and public deployment remain future work.
