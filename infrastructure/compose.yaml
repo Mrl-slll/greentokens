@@ -1,0 +1,34 @@
+name: greentokens-dev
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: greentokens-dev-mysql
+    ports:
+      - "127.0.0.1:3307:3306"
+    environment:
+      MYSQL_DATABASE: greentokens
+      MYSQL_USER: greentokens
+      MYSQL_PASSWORD: ${GT_MYSQL_PASSWORD:?Use scripts.local_stack}
+      MYSQL_ROOT_PASSWORD: ${GT_MYSQL_ROOT_PASSWORD:?Use scripts.local_stack}
+    volumes:
+      - mysql-data:/var/lib/mysql
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_bin"]
+    logging:
+      driver: none
+  storage:
+    image: chrislusf/seaweedfs:4.53
+    container_name: greentokens-dev-storage
+    command: ["mini", "-dir=/data", "-ip=storage", "-ip.bind=0.0.0.0", "-s3.port=8333"]
+    ports:
+      - "127.0.0.1:8333:8333"
+    environment:
+      AWS_ACCESS_KEY_ID: ${GT_S3_ACCESS_KEY:?Use scripts.local_stack}
+      AWS_SECRET_ACCESS_KEY: ${GT_S3_SECRET_KEY:?Use scripts.local_stack}
+      S3_BUCKET: greentokens
+    volumes:
+      - s3-data:/data
+    logging:
+      driver: none
+volumes:
+  mysql-data:
+  s3-data:
