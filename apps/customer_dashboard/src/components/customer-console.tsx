@@ -104,6 +104,10 @@ function SubmissionPanel() {
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (submittingRef.current) return;
+    if (identity === "admin") {
+      setErrorMessage("Job submission is unavailable for the admin identity.");
+      return;
+    }
 
     setErrorMessage(null);
     setJobId(null);
@@ -180,7 +184,7 @@ function SubmissionPanel() {
               rows={3}
               maxLength={MAX_INPUT_CHARACTERS}
               spellCheck={false}
-              disabled={submitting}
+              disabled={submitting || identity === "admin"}
               aria-describedby="values-help"
               className="mt-2 w-full rounded-lg border border-zinc-300 bg-transparent p-3 font-mono text-sm outline-offset-2 focus-visible:outline-2 focus-visible:outline-emerald-600 dark:border-zinc-700"
             />
@@ -198,7 +202,7 @@ function SubmissionPanel() {
 
           <button
             type="submit"
-            disabled={submitting}
+            disabled={submitting || identity === "admin"}
             className="rounded-lg bg-emerald-700 px-5 py-2.5 text-sm font-medium text-white hover:bg-emerald-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {submitting ? "Submitting..." : retryable ? "Retry submission" : "Submit job"}
