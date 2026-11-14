@@ -22,6 +22,7 @@ import {
   saveRecentJob,
 } from "@/lib/recent-jobs";
 import { useDevelopmentSession } from "./development-session";
+import Link from "next/link";
 
 const MAX_INPUT_CHARACTERS = 16_000;
 const MAX_VALUES = 1_000;
@@ -221,7 +222,7 @@ function SubmissionPanel() {
               className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm dark:border-emerald-900 dark:bg-emerald-950"
             >
               <p className="font-medium">Job accepted: {jobStatus}</p>
-              <p className="mt-1 break-all font-mono text-xs">{jobId}</p>
+              <Link href={`/jobs/${jobId}`} className="mt-1 block break-all font-mono text-xs underline underline-offset-2">{jobId}</Link>
               {storageWarning && (
                 <p className="mt-2 text-sm text-amber-800 dark:text-amber-300">
                   This browser could not save the job ID. Copy it before leaving this page.
@@ -248,7 +249,9 @@ function SubmissionPanel() {
                 key={id}
                 className="break-all rounded-lg bg-zinc-50 p-3 font-mono text-xs dark:bg-zinc-900"
               >
-                {id}
+                <Link href={`/jobs/${id}`} className="underline underline-offset-2">
+                  {id}
+                </Link>
               </li>
             ))}
           </ul>
