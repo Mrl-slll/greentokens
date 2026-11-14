@@ -21,10 +21,7 @@ import {
   recentJobsUpdatedEvent,
   saveRecentJob,
 } from "@/lib/recent-jobs";
-import {
-  DevelopmentSessionProvider,
-  useDevelopmentSession,
-} from "./development-session";
+import { useDevelopmentSession } from "./development-session";
 
 const MAX_INPUT_CHARACTERS = 16_000;
 const MAX_VALUES = 1_000;
@@ -324,9 +321,5 @@ function ConsoleContent() {
 }
 
 export function CustomerConsole() {
-  return (
-    <DevelopmentSessionProvider>
-      <ConsoleContent />
-    </DevelopmentSessionProvider>
-  );
+  return <ConsoleContent />;
 }
