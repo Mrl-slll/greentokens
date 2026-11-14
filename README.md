@@ -38,17 +38,19 @@ Public accounts, GPU workloads, payments, provider agents, and installer softwar
 - [x] **Core:** Document the backend API contract and command for starting the local stack.
 - [ ] **A + B:** Confirm the Next.js, React, TypeScript and styling choices; review newly installed dependencies and the reported npm audit findings under `AGENTS.md`.
 - [x] **A:** Initialize `apps/customer_dashboard/` with Next.js 16.4.6, TypeScript, ESLint, Tailwind CSS and the App Router. Local lint, production build and development-server startup passed on 14 November 2026.
-- [ ] **A:** Commit the reviewed frontend source and package lockfile on a feature branch. The implementation is currently local and has not been committed.
+- [x] **A:** Commit and push the frontend source and package lockfile on `feat/customer-dashboard-ui` (`8cc069c`). Open draft pull request [#1](https://github.com/Mrl-slll/greentokens/pull/1) against `main` for review; do not merge before integration checks.
 - [ ] **A + B:** Agree on adapter methods, component props, error behavior and separate feature branches before simultaneous work.
 - [ ] **A + Core:** Start the approved local backend and verify `GET /health`. The core developer's `127.0.0.1` cannot be reached from another PC without separate configuration.
 - [ ] **A:** Document verified frontend installation, start, mock/live configuration and API proxy steps after they are reproducible.
 
 ### P0 — Person A: application shell, proxy and job submission
 
-**Local status (14 November 2026):** The API proxy, typed client and initial customer console compile and pass ESLint. The proxy returned HTTP 404 for the blocked `/v1/workers` route. Its health request returned HTTP 502 because no FastAPI server was running at `127.0.0.1:8000`. Browser interaction, live submissions and end-to-end execution remain unverified.
+**Frontend status (14 November 2026):** The customer console renders locally, and the API proxy, typed client and frontend compile and pass ESLint. The initial source is committed on `feat/customer-dashboard-ui` and available for review in [draft PR #1](https://github.com/Mrl-slll/greentokens/pull/1). The proxy returned HTTP 404 for the blocked `/v1/workers` route and HTTP 502 for `/health` while FastAPI was offline at `127.0.0.1:8000`. Identity switching, form validation, live submissions and end-to-end execution still require testing.
 
-- [ ] Build the customer app shell, persistent navigation and clear **New job** action.
-- [ ] Add a dashboard with **Recent jobs on this browser** and appropriate empty/loading states; do not call a nonexistent server-side job-list API.
+- [x] Build the initial customer dashboard with a visible **New job** form. The local page renders.
+- [ ] Add persistent navigation when the job-detail, usage and settings views are integrated.
+- [x] Display **Recent jobs on this browser**, including an empty state, using browser-local IDs rather than a nonexistent server-side job-list API.
+- [ ] Verify recent-job display and loading/error behavior when IDs exist and job detail is integrated.
 - [x] Define TypeScript types for submissions, job detail, attempts, statuses, artifacts, results and usage from the backend implementation.
 - [x] Implement a typed live API client for job submission, detail, results, artifacts, cancellation and usage.
 - [ ] Add a separate mock adapter behind the agreed client interface. Never present mock data as live execution.
@@ -62,7 +64,7 @@ Public accounts, GPU workloads, payments, provider agents, and installer softwar
 - [ ] Retain and display the backend's real `job_id` and status from HTTP 202; never invent submission success.
 - [x] Implement bounded browser-local recent job ID storage, scoped by development identity.
 - [ ] Link recent IDs to the job-detail view and refetch authoritative records after reload.
-- [ ] Provide accessible form errors and request-failure states; coordinate the handoff from successful submission to Person B's job detail route.
+- [ ] Verify accessible form validation and offline request-failure states in the browser; coordinate the handoff from successful submission to Person B's job-detail route.
 
 ### P0 — Person B: job detail, polling and results
 
@@ -179,7 +181,7 @@ For backend setup, follow `docs/local-development.md`. On the core developer's W
 API documentation: `http://127.0.0.1:8000/docs`
 Schema: `http://127.0.0.1:8000/openapi.json`
 
-The customer application has been initialized locally under `apps/customer_dashboard/` using Next.js 16.4.6, TypeScript, ESLint and Tailwind CSS. The following commands were verified on Windows PowerShell:
+The customer application is tracked in `apps/customer_dashboard/` on the `feat/customer-dashboard-ui` branch and is under review in [draft PR #1](https://github.com/Mrl-slll/greentokens/pull/1). It uses Next.js 16.4.6, TypeScript, ESLint and Tailwind CSS. The following commands were verified on Windows PowerShell:
 
 ```powershell
 cd apps\customer_dashboard
@@ -188,9 +190,9 @@ npm.cmd run build
 npm.cmd run dev -- --hostname 127.0.0.1
 ```
 
-The development server was accessible at `http://127.0.0.1:3000` (`GET /` returned HTTP 200). The production-only npm audit reported zero vulnerabilities; the full audit reported seven moderate findings through development tooling. Review dependency updates before applying them.
+The development server was accessible at `http://127.0.0.1:3000`; the customer dashboard was rendered and visually inspected in the browser. A second `npm run dev` instance is unnecessary while one is already running. The production-only npm audit reported zero vulnerabilities; the full audit reported seven moderate findings through development tooling. Review dependency updates before applying them.
 
-The proxy allows the documented customer API routes under `/api/core/` and forwards them to `http://127.0.0.1:8000` on the same machine. The blocked `/api/core/v1/workers` route returned HTTP 404. The `/api/core/health` request returned HTTP 502 while the local FastAPI backend was offline. No live job or result has been verified. Once the package lockfile is committed, a fresh checkout should install dependencies with `npm.cmd ci` before running the commands above. Do not copy virtual environments or credentials between machines.
+The proxy allows the documented customer API routes under `/api/core/` and forwards them to `http://127.0.0.1:8000` on the same machine. The blocked `/api/core/v1/workers` route returned HTTP 404. The `/api/core/health` request returned HTTP 502 while the local FastAPI backend was offline. No live job or result has been verified. For a fresh checkout, run `npm.cmd ci` in `apps/customer_dashboard/` before the commands above. Do not copy virtual environments or credentials between machines.
 
 ## Completion criteria
 
