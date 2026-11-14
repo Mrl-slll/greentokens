@@ -37,25 +37,31 @@ Public accounts, GPU workloads, payments, provider agents, and installer softwar
 - [x] **Core:** Add the backend source, `AGENTS.md`, `docs/applications-handoff.md` and local setup documentation to the shared repository. Exclude credentials, `.env`, `.venv`, storage volumes and private datasets.
 - [x] **Core:** Document the backend API contract and command for starting the local stack.
 - [ ] **A + B:** Confirm the Next.js, React, TypeScript and styling choices; review newly installed dependencies and the reported npm audit findings under `AGENTS.md`.
-- [ ] **A:** Commit the frontend app setup under `apps/customer_dashboard/` on a feature branch after running the approved checks. Local scaffolding is not a committed deliverable.
+- [x] **A:** Initialize `apps/customer_dashboard/` with Next.js 16.4.6, TypeScript, ESLint, Tailwind CSS and the App Router. Local lint, production build and development-server startup passed on 14 November 2026.
+- [ ] **A:** Commit the reviewed frontend source and package lockfile on a feature branch. The implementation is currently local and has not been committed.
 - [ ] **A + B:** Agree on adapter methods, component props, error behavior and separate feature branches before simultaneous work.
 - [ ] **A + Core:** Start the approved local backend and verify `GET /health`. The core developer's `127.0.0.1` cannot be reached from another PC without separate configuration.
 - [ ] **A:** Document verified frontend installation, start, mock/live configuration and API proxy steps after they are reproducible.
 
 ### P0 — Person A: application shell, proxy and job submission
 
+**Local status (14 November 2026):** The API proxy, typed client and initial customer console compile and pass ESLint. The proxy returned HTTP 404 for the blocked `/v1/workers` route. Its health request returned HTTP 502 because no FastAPI server was running at `127.0.0.1:8000`. Browser interaction, live submissions and end-to-end execution remain unverified.
+
 - [ ] Build the customer app shell, persistent navigation and clear **New job** action.
 - [ ] Add a dashboard with **Recent jobs on this browser** and appropriate empty/loading states; do not call a nonexistent server-side job-list API.
-- [ ] Define TypeScript types for submissions, job detail, attempts, statuses, artifacts, results and usage from the backend implementation.
-- [ ] Implement one typed client with explicit mock/live modes. Never show fixtures as real execution.
-- [ ] Implement the fixed same-origin server proxy (for example `/api/core/...`) to `http://127.0.0.1:8000`: allowlist HTTP methods and endpoint paths, validate IDs, bound request sizes and preserve upstream status/content type. No arbitrary upstream URLs or direct Ray/database/storage requests.
-- [ ] Add a visible **Local development - identity stub** banner and development identity selector (`alice`, `bob`; `admin` for diagnostics only). Forward `X-Dev-User` to the API and never send `organization_id` in job bodies.
-- [ ] On identity change, abort outstanding requests, clear visible/cached state, then load only the newly selected identity's browser-known jobs.
-- [ ] Build the **New job** form for the sole enabled template, `sum_numbers_v1`. Validate 1-1,000 integers from -1,000,000,000 to 1,000,000,000.
-- [ ] Use supported CPU-only defaults: 1 CPU core, `ram_gb: 0.125`, 0 GPUs, `trusted_cpu`, and `max_runtime_seconds: 60`.
-- [ ] Implement `POST /v1/jobs` with a new `idempotency_key` for each distinct submission. Preserve the exact same key and body for an uncertain retry.
+- [x] Define TypeScript types for submissions, job detail, attempts, statuses, artifacts, results and usage from the backend implementation.
+- [x] Implement a typed live API client for job submission, detail, results, artifacts, cancellation and usage.
+- [ ] Add a separate mock adapter behind the agreed client interface. Never present mock data as live execution.
+- [x] Implement the fixed same-origin server proxy (`/api/core/[...path]`) to `http://127.0.0.1:8000`: allowlist methods and endpoints, validate IDs, bound request sizes and preserve upstream status/content type. Route blocking and production build are verified; live backend connectivity is pending.
+- [x] Implement a **Local development - identity stub** banner and selector (`alice`, `bob`; `admin` for diagnostics only), with `X-Dev-User` forwarding and no `organization_id` in job bodies. Browser testing remains pending.
+- [x] Implement request abortion and submission-state reset on identity change, with separately keyed browser-local recent job IDs.
+- [ ] Verify identity switching, stale-request teardown and cross-identity isolation in the browser and against the live backend.
+- [x] Implement the inline **New job** form for `sum_numbers_v1` with 1-1,000 integer inputs, each from -1,000,000,000 to 1,000,000,000. Browser testing remains pending.
+- [x] Configure CPU-only submission defaults: 1 CPU core, `ram_gb: 0.125`, 0 GPUs, `trusted_cpu`, and `max_runtime_seconds: 60`.
+- [x] Implement the `POST /v1/jobs` client method and reuse the same `idempotency_key` and request body for an uncertain retry. Live submission behavior remains unverified.
 - [ ] Retain and display the backend's real `job_id` and status from HTTP 202; never invent submission success.
-- [ ] Store a bounded set of known job IDs per development identity in browser storage. On reload, fetch authoritative detail separately for each known ID.
+- [x] Implement bounded browser-local recent job ID storage, scoped by development identity.
+- [ ] Link recent IDs to the job-detail view and refetch authoritative records after reload.
 - [ ] Provide accessible form errors and request-failure states; coordinate the handoff from successful submission to Person B's job detail route.
 
 ### P0 — Person B: job detail, polling and results
@@ -82,7 +88,7 @@ Public accounts, GPU workloads, payments, provider agents, and installer softwar
 
 **Person A**
 
-- [ ] Expose typed client methods for file upload, artifacts, cancellation and usage through the existing allowlisted proxy; extend the allowlist only for documented endpoints.
+- [x] Define typed live client methods for file upload, artifacts, cancellation and usage through the allowlisted proxy. Runtime integration with Person B remains pending.
 - [ ] Keep development identity scoping and known-job recovery correct for jobs created from uploaded artifacts.
 - [ ] Add a **Settings** view for development identity and mock/live selection; no real account profile or billing settings.
 - [ ] Add a **Usage** view showing actual `attempts`, `wall_seconds`, `billable: false` and `measurement` from `GET /v1/usage`, without invented GPU metrics or pricing.
@@ -173,7 +179,18 @@ For backend setup, follow `docs/local-development.md`. On the core developer's W
 API documentation: `http://127.0.0.1:8000/docs`
 Schema: `http://127.0.0.1:8000/openapi.json`
 
-The customer app is being initialized locally under `apps/customer_dashboard/`. After its package files are reviewed and committed, document the verified frontend install, lint, build and start commands here. Do not copy virtual environments or credentials between machines.
+The customer application has been initialized locally under `apps/customer_dashboard/` using Next.js 16.4.6, TypeScript, ESLint and Tailwind CSS. The following commands were verified on Windows PowerShell:
+
+```powershell
+cd apps\customer_dashboard
+npm.cmd run lint
+npm.cmd run build
+npm.cmd run dev -- --hostname 127.0.0.1
+```
+
+The development server was accessible at `http://127.0.0.1:3000` (`GET /` returned HTTP 200). The production-only npm audit reported zero vulnerabilities; the full audit reported seven moderate findings through development tooling. Review dependency updates before applying them.
+
+The proxy allows the documented customer API routes under `/api/core/` and forwards them to `http://127.0.0.1:8000` on the same machine. The blocked `/api/core/v1/workers` route returned HTTP 404. The `/api/core/health` request returned HTTP 502 while the local FastAPI backend was offline. No live job or result has been verified. Once the package lockfile is committed, a fresh checkout should install dependencies with `npm.cmd ci` before running the commands above. Do not copy virtual environments or credentials between machines.
 
 ## Completion criteria
 
