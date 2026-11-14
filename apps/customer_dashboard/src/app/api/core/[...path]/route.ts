@@ -98,8 +98,25 @@ async function handleRequest(request: Request, context: RouteContext): Promise<R
 
   if (request.method === "POST") {
     const origin = request.headers.get("origin");
-    if (origin && origin !== url.origin) {
-      return errorResponse(403, "Cross-origin requests are not allowed");
+
+    if (origin) {
+      const host = request.headers.get("host");
+      let sameOrigin = false;
+
+      try {
+        const browserOrigin = new URL(origin);
+        sameOrigin =
+          browserOrigin.protocol === "http:" &&
+          (browserOrigin.hostname === "127.0.0.1" ||
+            browserOrigin.hostname === "localhost") &&
+          browserOrigin.host === host;
+      } catch {
+        sameOrigin = false;
+      }
+
+      if (!sameOrigin) {
+        return errorResponse(403, "Cross-origin requests are not allowed");
+      }
     }
   }
 
