@@ -14,12 +14,12 @@ Public accounts, GPU workloads, payments, provider agents, and installer softwar
 
 | Area | Owner | Deliverables | Primary files |
 | --- | --- | --- | --- |
-| **Person A - shell, proxy, and submission** | **chaewon-research** | Customer app setup, navigation, fixed same-origin proxy, typed API adapters, development identity selector, inline job submission, browser-local recent job IDs | `apps/customer_dashboard/` app shell, API proxy, client/types, submission and identity modules |
+| **Person A - project lead, shell, proxy, and submission** | **chaewon-research** | Customer app setup, navigation, fixed same-origin proxy, typed API adapters, development identity selector, inline job submission, browser-local recent job IDs | `apps/customer_dashboard/` app shell, API proxy, client/types, submission and identity modules |
 | **Person B - job lifecycle and outputs** | **Michelle Lyu ([@Mrl-slll](https://github.com/Mrl-slll))** | Job detail and ~2-second polling, status/error presentation, results, authorized logs and artifacts, raw JSON file upload, cancellation | `apps/customer_dashboard/` job detail, results, file upload and cancellation modules |
 | **Core backend** | **Core developer** | Backend source and local stack, API policy, job execution, storage, worker/agent implementation | `core/`, `scripts/`, `infrastructure/`, backend docs |
 | **Integration and quality** | **Persons A + B** | Agree on adapter interfaces, wire pages to the API, test identity isolation and end-to-end execution, review and document the demo | Joint integration and review |
 
-**Interface agreement:** Person A owns the shared typed client, proxy and identity state. Person B calls that client for job detail, results, artifacts and cancellation rather than building a second proxy or transport layer. Agree on function signatures and error handling before parallel implementation. Changes to backend code remain with the core developer.
+**Integration contract:** Person A leads the frontend architecture and owns the shared typed client, proxy, routes and development identity state. Person B uses that client for job detail, results, artifacts and cancellation rather than building a second transport layer. Coordinate component props, function signatures, error handling and branch integration to avoid conflicting implementations. Backend execution and deployment changes remain with the core developer.
 
 ## Delivery order
 
@@ -38,17 +38,17 @@ Public accounts, GPU workloads, payments, provider agents, and installer softwar
 - [x] **Core:** Document the backend API contract and command for starting the local stack.
 - [ ] **A + B:** Confirm the Next.js, React, TypeScript and styling choices; review newly installed dependencies and the reported npm audit findings under `AGENTS.md`.
 - [x] **A:** Initialize `apps/customer_dashboard/` with Next.js 16.4.6, TypeScript, ESLint, Tailwind CSS and the App Router. Local lint, production build and development-server startup passed on 14 November 2026.
-- [x] **A:** Commit and push the frontend source and package lockfile on `feat/customer-dashboard-ui` (`8cc069c`). Open draft pull request [#1](https://github.com/Mrl-slll/greentokens/pull/1) against `main`. Follow-up commits `b0b64cb` (proxy origin validation) and `947c20b` (diagnostics-only admin form) are pushed. Integration checks remain pending.
+- [x] **A:** Commit and push the frontend source and package lockfile on `feat/customer-dashboard-ui` (`8cc069c`). Open draft pull request [#1](https://github.com/Mrl-slll/greentokens/pull/1) against `main`. The following six commits are pushed: `8cc069c` (foundation), `b0b64cb` (proxy origin), `947c20b` (admin restriction), `0c7dfeb` (shared session layout), `ee50ca2` (job navigation) and `1681784` (identity persistence). Integration checks remain pending.
 - [ ] **A + B:** Agree on adapter methods, component props, error behavior and separate feature branches before simultaneous work.
-- [ ] **A + Core:** Start the approved local backend and verify `GET /health`. The core developer's `127.0.0.1` cannot be reached from another PC without separate configuration.
+- [ ] **A + Core:** Prepare an approved local backend environment and verify `GET /health`. On Person A's Windows machine, the health request failed to connect, `.venv\Scripts\python.exe` was absent, and the `docker` command was not found on 14 November 2026. The core developer's `127.0.0.1` cannot be reached from another PC without separate configuration.
 - [ ] **A:** Document verified frontend installation, start, mock/live configuration and API proxy steps after they are reproducible.
 
 ### P0 — Person A: application shell, proxy and job submission
 
-**Frontend status (14 November 2026):** The customer dashboard renders locally, and ESLint, TypeScript and production-build checks pass. The frontend is published on `feat/customer-dashboard-ui` in [draft PR #1](https://github.com/Mrl-slll/greentokens/pull/1). Browser checks confirmed empty-input and decimal rejection, visual identity switching, and a backend-unavailable response for valid submission. The proxy blocked `/v1/workers` (HTTP 404), rejected an unrelated request origin (HTTP 403), and passed a same-origin request to the upstream connection attempt (HTTP 502 while FastAPI was offline). The diagnostics-only admin form restriction was tested visually and committed. No job execution, completed result, cross-identity API isolation or multi-page navigation has been verified.
+**Frontend status (14 November 2026):** The customer dashboard renders locally, and ESLint, TypeScript and production-build checks passed after the latest changes. Six frontend commits through `1681784` are pushed to `feat/customer-dashboard-ui` in [draft PR #1](https://github.com/Mrl-slll/greentokens/pull/1). The shared session provider is mounted in the root layout. A `/jobs/[jobId]` route renders a clearly labeled integration placeholder; successful and browser-local recent job IDs link to it. Browser checks demonstrated form input rejection, identity selection, an admin-disabled submission control and a backend-unavailable response. The new session code stores the selected development identity locally; screenshot checks show Alice, Bob and Admin selections, but complete reload/navigation, stale-request and cross-identity access tests remain outstanding. The proxy blocked `/v1/workers` (HTTP 404), rejected a cross-origin POST (HTTP 403), and returned HTTP 502 for a same-origin request with FastAPI offline. No live job execution, completed result or authoritative detail-page data has been verified. A Next.js instant-navigation development insight was observed despite passing builds.
 
 - [x] Build the initial customer dashboard with a visible **New job** form. The local page renders.
-- [ ] Move the development session provider into a shared layout and add persistent navigation when job-detail, usage and settings views are integrated. Preserve the selected identity across page transitions.
+- [x] Move the development session provider into the shared root layout (`0c7dfeb`), create `/jobs/[jobId]` navigation (`ee50ca2`), and implement browser-local identity restoration (`1681784`). The job route is a placeholder; usage/settings navigation and complete identity-transition testing remain open.
 - [x] Display **Recent jobs on this browser**, including an empty state, using browser-local IDs rather than a nonexistent server-side job-list API.
 - [ ] Verify recent-job display and loading/error behavior when IDs exist and job detail is integrated.
 - [x] Define TypeScript types for submissions, job detail, attempts, statuses, artifacts, results and usage from the backend implementation.
@@ -57,17 +57,20 @@ Public accounts, GPU workloads, payments, provider agents, and installer softwar
 - [x] Implement the fixed same-origin server proxy (`/api/core/[...path]`) to `http://127.0.0.1:8000`: allowlist methods and endpoints, validate IDs, bound request sizes and preserve upstream status/content type. Confirm blocked-route rejection (404), cross-origin rejection (403), and same-origin forwarding through the proxy. Live backend connectivity is pending.
 - [x] Implement a **Local development - identity stub** banner and selector (`alice`, `bob`; `admin` for diagnostics only), with `X-Dev-User` forwarding and no `organization_id` in job bodies. Confirm visual identity switching and disable customer submissions under `admin`; committed in `947c20b`.
 - [x] Implement request abortion and submission-state reset on identity change, with separately keyed browser-local recent job IDs.
-- [ ] Verify request teardown during identity switches, persistence across navigation and cross-identity API isolation against the live backend. Visual selector switching is confirmed.
+- [ ] Verify request teardown during identity switches, saved identity across a hard reload and client-side navigation, and cross-identity API isolation against the live backend. Identity switching and saved selections were visually inspected, but full automated and live-backend checks are pending.
 - [x] Implement the inline **New job** form for `sum_numbers_v1` with 1-1,000 integer inputs, each from -1,000,000,000 to 1,000,000,000. Browser checks confirmed that empty input and decimal values are rejected.
 - [x] Configure CPU-only submission defaults: 1 CPU core, `ram_gb: 0.125`, 0 GPUs, `trusted_cpu`, and `max_runtime_seconds: 60`.
 - [x] Implement the `POST /v1/jobs` client method and reuse the same `idempotency_key` and request body for an uncertain retry. Live submission behavior remains unverified.
 - [ ] Retain and display the backend's real `job_id` and status from HTTP 202; never invent submission success.
 - [x] Implement bounded browser-local recent job ID storage, scoped by development identity.
-- [ ] Link recent IDs to the job-detail view and refetch authoritative records after reload.
+- [x] Add links from successful submissions and browser-local recent job IDs to `/jobs/[jobId]` (`ee50ca2`).
+- [ ] Integrate the job-detail component and refetch authoritative records after reload; currently this route displays an integration placeholder, not API data.
 - [x] Verify visible form errors for empty and decimal input, plus an offline `Local API unavailable` state for a valid submission.
-- [ ] Complete accessibility checks and connect successful submissions to Person B's job-detail route.
+- [ ] Complete accessibility checks, replace the job-detail placeholder with Person B's implementation, and verify navigation using a real returned job ID.
 
 ### P0 — Person B: job detail, polling and results
+
+The checked items in this section reflect the existing team checklist. Person B's implementation has not yet been integrated into Person A's branch; do not interpret these checkmarks as verified functionality in the current customer dashboard.
 
 - [x] Implement **Job detail** with authoritative `GET /v1/jobs/{id}` data: job ID, status, attempts, timestamps, error code, artifacts and cancellation state.
 - [x] Poll active jobs approximately every 2 seconds. Stop on terminal status, navigation or identity change; abort stale requests and back off on transport errors.
@@ -79,6 +82,9 @@ Public accounts, GPU workloads, payments, provider agents, and installer softwar
 - [x] Support keyboard, focus, text status labels, responsive layout, and loading/empty/error states on job-detail and results screens.
 
 ### P0 — First integration (Frontend A + B)
+
+- [ ] Bring Person B's job-detail source into the shared repository or otherwise make it available for review; confirm the `/jobs/[jobId]` integration interface and shared client usage.
+- [ ] Replace the route placeholder with real detail, polling and result components; keep identity changes from exposing stale results.
 
 - [ ] Connect the New Job form to the live submission adapter and display the backend's returned job ID.
 - [ ] Connect the detail view to actual job states: `QUEUED`, `DISPATCHING`, `RUNNING`, `SUCCEEDED`, `FAILED`, `CANCELLED`.
@@ -193,7 +199,27 @@ npm.cmd run dev -- --hostname 127.0.0.1
 
 The development server was accessible at `http://127.0.0.1:3000`; the customer dashboard was rendered and visually inspected in the browser. A second `npm run dev` instance is unnecessary while one is already running. The production-only npm audit reported zero vulnerabilities; the full audit reported seven moderate findings through development tooling. Review dependency updates before applying them.
 
-The proxy allows documented customer API routes under `/api/core/` and forwards them to `http://127.0.0.1:8000` on the same machine. The blocked `/api/core/v1/workers` route returned HTTP 404; a cross-origin POST returned HTTP 403; and a same-origin POST reached the backend connection attempt and returned HTTP 502 while FastAPI was offline. The dashboard displayed `Local API unavailable` for a valid submission, with a retry option that preserves the request key. The admin identity cannot submit jobs through the customer form. No live job or result has been verified. For a fresh checkout, run `npm.cmd ci` in `apps/customer_dashboard/` before the commands above. Do not copy virtual environments or credentials between machines.
+The proxy allows documented customer API routes under `/api/core/` and forwards them to `http://127.0.0.1:8000` on the same machine. The blocked `/api/core/v1/workers` route returned HTTP 404; a cross-origin POST returned HTTP 403; and a same-origin POST reached the backend connection attempt and returned HTTP 502 while FastAPI was offline. The dashboard displayed `Local API unavailable` for a valid submission, with a retry option that preserves the request key. The admin identity cannot submit jobs through the customer form. The new `/jobs/[jobId]` page displays an unverified-identifier placeholder until detail integration. No live job or result has been verified. For a fresh checkout, run `npm.cmd ci` in `apps/customer_dashboard/` before the commands above. Do not copy virtual environments or credentials between machines.
+
+### Person A backend setup status (14 November 2026)
+
+The frontend can run without the backend, but live submission and artifact retrieval require FastAPI and its supporting local services. The following observations are from Person A's Windows PowerShell environment, not from the core developer's machine:
+
+| Check | Observed result |
+| --- | --- |
+| `curl.exe -i http://127.0.0.1:8000/health` | Connection failed: no service reachable on port 8000 |
+| `Test-Path .\.venv\Scripts\python.exe` | `False`: documented virtual environment not present |
+| `docker --version` and `docker info` | `docker` command not recognized; Docker CLI not accessible from this shell |
+
+Before attempting the launcher, confirm a supported Python 3.12 environment and a working local Docker Desktop installation, following `docs/local-development.md` and the core developer's setup guidance. The documented command above is **not currently runnable on Person A's machine**. Installing tools is a separate local setup step; do not copy another developer's `.venv`, containers, service credentials or persistent volumes. Keep all services bound to loopback and do not expose the development identity stub publicly.
+
+### Immediate integration priorities
+
+1. Coordinate the job-detail component handoff with Person B and integrate it at `/jobs/[jobId]` through the shared client.
+2. Prepare and validate Person A's approved backend environment with the core developer; only mark `/health` verified when it responds successfully.
+3. Prove a real inline `sum_numbers_v1` request for `[1,2,3,4]` yields `SUCCEEDED` and result `10`, then test refresh, cancellation and organization isolation.
+4. Resolve the Next.js instant-navigation insight and add focused automated frontend tests before closing integration.
+
 
 ## Completion criteria
 
