@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+.cache/
+bert-tiny-*/
+smoke-test/
+*.safetensors
+pytorch_model*.bin
+metrics.json

@@ -1,0 +1,94 @@
+GreenTokens · BERT-Tiny CPU 训练起步包
+整理日期：2026-11-14
+
+给队友的说明
+============
+我们要用三台真实电脑共同微调一个小模型，演示 GreenTokens 的分布式计算能力。
+当前训练实验面向 Windows 和 macOS 团队，其中包括 MacBook M4。
+第一阶段先在一台电脑上完成 CPU 训练、保存模型、重新加载并预测。
+
+这个示例包含什么？
+================
+1. START_HERE_zh.txt     本说明，双击即可阅读。
+2. README_zh.md         完整中文操作说明，包含 Mac / Windows 命令及三机准备事项。
+3. train_bert_tiny.py    单机 CPU 训练脚本。
+4. requirements.txt     Python 依赖清单（PyTorch 按系统单独安装）。
+
+模型和数据不包含在仓库内，脚本首次运行时会从 Hugging Face 下载。
+
+先怎么做？
+==========
+克隆或下载仓库后，从仓库根目录进入 examples/bert_tiny_cpu 文件夹，再运行下面的命令。
+不用在 Hugging Face 网页上点击训练；训练是在电脑的 Python 环境中运行的。
+
+Mac（Apple Silicon）：先安装 Python 3.11，然后逐行运行：
+
+python3.11 -m venv .venv
+.venv/bin/python -m pip install --upgrade pip
+.venv/bin/python -m pip install 'torch>=2.6,<3'
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python train_bert_tiny.py
+
+Windows（Intel/AMD 64 位）：先安装 Python 3.11，在 PowerShell 中逐行运行：
+
+py -3.11 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install "torch>=2.6,<3" --index-url https://download.pytorch.org/whl/cpu
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe train_bert_tiny.py
+
+如果是 Intel Mac 或 ARM Windows，先确认相应的 PyTorch 安装方案，不直接套用以上命令。
+完整安装说明和常见问题见 README_zh.md。
+
+脚本会做什么？
+==============
+• 加载 prajjwal1/bert-tiny，用 SST-2 做英文正面/负面情感分类。
+• 固定随机种子，抽取 999 条训练样本，训练 3 轮；CPU 线程数 2。
+• 全局 batch size 为 24，最大文本长度为 128。
+• 全程使用 CPU，Mac 也不使用 MPS/GPU。
+• 输出训练进度，计算验证准确率。
+• 保存模型与分词器，再从磁盘加载模型进行一句话预测。
+• 记录训练耗时、CPU 时间、软件版本等信息。
+
+怎么看是否成功？
+================
+终端最终显示 COMPLETE，且生成 bert-tiny-sst2-cpu 文件夹。
+其中包含模型、分词器和 metrics.json。
+metrics.json 应显示 status 为 completed、checkpoint_reload_verified 为 true。
+预测类别和准确率必须看实际输出；不能把预期结果当作实测结果。
+默认不会覆盖已有结果；重跑时添加 --output bert-tiny-run2。
+
+队友跑完后，请保留并分享 metrics.json 和终端日志。
+若运行失败，分享完整报错、操作系统、芯片、Python 版本，方便定位。
+
+之后如何扩展到三台？
+====================
+Ray 官方支持的多节点平台是 Linux；原生 Windows/macOS 多节点属于实验性路径。
+需要为每台电脑安排 Linux 环境，并验证三个节点能够双向通信。
+WSL2 或 Linux 虚拟机可作为候选，但虚拟化本身不会自动解决校园网或端口问题。
+连接同一个校园网不等于节点互通；采用学校允许的私有连接方式。
+
+后续用 Ray Core / Ray Train 启动三个 worker，每台电脑一个，PyTorch Gloo 同步梯度。
+三台各处理不同样本，协作更新同一模型。三台分别独立跑本包脚本，不算分布式训练。
+不能把三个进程或三个虚拟机都放在同一台电脑上当成三机测试。
+
+比较单机和三机时，保持数据、模型起点、轮数、全局 batch size 和学习率等条件可比。
+若三机采用 Linux 环境，应在同一环境重新测单机基线；三机每 worker 可用 batch 8。
+
+与现有项目的关系
+================
+本示例独立运行，尚未接入客户页面或后端任务接口。现有 sum_numbers_v1 计算流程保持不变。
+训练实验的三台电脑目标，不代表项目原有四机平台里程碑已经完成。
+
+目前完成到哪里？
+================
+已准备脚本与说明，通过 Python 语法和命令行帮助检查。
+尚未安装训练依赖、实际训练、生成模型检查点或连接三台电脑。
+本包不包含三机启动脚本，三机环境与网络确认后再补齐。
+
+参考链接
+========
+模型：https://huggingface.co/prajjwal1/bert-tiny
+数据：https://huggingface.co/datasets/stanfordnlp/sst2
+Ray 平台支持：https://docs.ray.io/en/latest/cluster/getting-started.html
+Ray 官方 CPU 示例：https://github.com/ray-project/ray/blob/master/python/ray/train/examples/pytorch/torch_quick_start.py

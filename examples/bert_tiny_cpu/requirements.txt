@@ -1,0 +1,5 @@
+# Install torch separately using the platform-specific README commands.
+# Record resolved versions after the first successful run with pip freeze.
+transformers>=4.57.1,<5
+datasets>=3,<5
+safetensors>=0.4.3

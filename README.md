@@ -10,6 +10,12 @@ The existing local backend uses FastAPI, MySQL, Ray Jobs/Core, and S3-compatible
 
 Public accounts, GPU workloads, payments, provider agents, and installer software are outside the current customer MVP. Any provider screens are prototypes until backend support exists.
 
+## BERT-Tiny CPU training starter
+
+The first model-training baseline lives in [`examples/bert_tiny_cpu/`](examples/bert_tiny_cpu/README.md). It fine-tunes `prajjwal1/bert-tiny` on 999 SST-2 examples using CPU only, saves and reloads a checkpoint, runs sentiment prediction, and records timing and validation metrics. [中文操作说明](examples/bert_tiny_cpu/README_zh.md) cover Apple Silicon Macs (including M4) and Windows.
+
+This is a standalone single-computer experiment with its own optional environment. It is not yet a customer API template or a Ray Train job. The next training experiment targets three distinct computers; the existing four-machine platform milestone remains separate. Training execution and multi-computer results have not been verified. The existing `sum_numbers_v1` pipeline remains the customer MVP.
+
 ## Team ownership
 
 | Area | Owner | Deliverables | Primary files |
