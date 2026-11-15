@@ -74,8 +74,23 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
         run: |
+          cat > notes.md <<EOF
+          # ⬇️ [Download for Windows](https://github.com/${GH_REPO}/releases/download/${RELEASE_TAG}/GreenTokens-Provider-Setup.exe)
+
+          **GreenTokens Provider**: share your computer's spare power with one button. Windows 10 or 11, about 2 MB.
+
+          1. **Open the downloaded file.** If Windows says *"Windows protected your PC"*, click **More info → Run anyway**.
+          2. **Open GreenTokens Provider** from the Start menu. No account, no admin password.
+          3. **Press the power button.** You'll agree once the first time. Press it again to disconnect.
+
+          > **Demo version.** Shows your real hardware, but connecting is simulated: no jobs run on your computer and nothing is sent anywhere. It never connects by itself and never starts with Windows.
+
+          To remove it: Windows **Settings → Apps → Installed apps → GreenTokens Provider → Uninstall**.
+
+          <sub>Built from ${GITHUB_SHA}.</sub>
+          EOF
           gh release delete "$RELEASE_TAG" --yes --cleanup-tag || true
           gh release create "$RELEASE_TAG" out/GreenTokens-Provider-Setup.exe \
             --prerelease --target "$GITHUB_SHA" \
-            --title "GreenTokens Provider 0.1.0 (demo)" \
-            --notes "Demo build of the GreenTokens Provider Windows app. Sign-in, computing and activity are simulated; hardware detection is real. Unsigned: Windows SmartScreen may show 'Windows protected your PC' (choose More info, then Run anyway). Installs for the current user only; no administrator rights needed. Built from ${GITHUB_SHA}."
+            --title "GreenTokens Provider for Windows (demo)" \
+            --notes-file notes.md
