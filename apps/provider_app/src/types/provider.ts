@@ -21,7 +21,21 @@ export type HardwareResult =
   | { status: "unavailable"; reason: "browser" | "failed"; message: string };
 
 export type Participation = "paused" | "starting" | "active" | "pausing";
-export type Connection = "demo" | "offline";
+export type Connection = "demo" | "offline" | "lan";
+
+/** A private group of computers on one local network. The code carries the leader address and access token. */
+export interface Group {
+  role: "host" | "member";
+  code: string;
+}
+
+export const GROUP_CODE_RE = /^GT1-(\d{1,3}(?:\.\d{1,3}){3})-([0-9a-f]{32})$/;
+
+export interface PrepareResult {
+  lanIp: string;
+  firewall: boolean;
+  networkPrivate: boolean;
+}
 
 export interface Account {
   displayName: string;
@@ -54,6 +68,10 @@ export interface Activity {
   totalSeconds: number;
   cpuPercent: number;
   gpuPercent: number | null;
+  /** Computers currently in the group (live mode); null when unknown. */
+  groupNodes?: number | null;
+  /** false when this computer can't currently reach the group leader. */
+  leaderReachable?: boolean;
 }
 
 export const DEFAULT_PREFERENCES: Preferences = {

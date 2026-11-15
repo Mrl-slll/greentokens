@@ -41,6 +41,24 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+      - name: Agent unit tests
+        working-directory: apps/provider_app/src-tauri/agent
+        run: python -m unittest -v test_gt_agent
+      - name: Bundle uv (pinned, checksum-verified)
+        shell: pwsh
+        env:
+          UV_VERSION: "0.13.8"
+          UV_SHA256: "529e78a9cec6cd7e3e014f7ecd8bda0c113969d4ed0f2efeedb85c30943325b8"
+        run: |
+          $zip = Join-Path $env:RUNNER_TEMP "uv.zip"
+          Invoke-WebRequest "https://github.com/astral-sh/uv/releases/download/$env:UV_VERSION/uv-x86_64-pc-windows-msvc.zip" -OutFile $zip
+          $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+          if ($hash -ne $env:UV_SHA256) { throw "uv checksum mismatch: $hash" }
+          $dir = Join-Path $env:RUNNER_TEMP "uv"
+          Expand-Archive $zip -DestinationPath $dir -Force
+          New-Item -ItemType Directory -Force src-tauri/bin | Out-Null
+          Copy-Item (Get-ChildItem $dir -Recurse -Filter uv.exe | Select-Object -First 1).FullName src-tauri/bin/uv.exe
+          & src-tauri/bin/uv.exe --version
       - name: Build installer
         shell: bash
         run: |
@@ -77,13 +95,13 @@ jobs:
           cat > notes.md <<EOF
           # ⬇️ [Download for Windows](https://github.com/${GH_REPO}/releases/download/${RELEASE_TAG}/GreenTokens-Provider-Setup.exe)
 
-          **GreenTokens Provider**: share your computer's spare power with one button. Windows 10 or 11, about 2 MB.
+          **GreenTokens Provider**: connect computers on the same home or office network into one computing group, with one button. Windows 10 or 11.
 
-          1. **Open the downloaded file.** If Windows says *"Windows protected your PC"*, click **More info → Run anyway**.
-          2. **Open GreenTokens Provider** from the Start menu. No account, no admin password.
-          3. **Press the power button.** You'll agree once the first time. Press it again to disconnect.
+          1. **Install** on each computer. If Windows says *"Windows protected your PC"*, click **More info → Run anyway**.
+          2. **Computer 1:** open the app → **Start a group** → **Copy** the code. **Computer 2:** **Join a group** → paste the code.
+          3. **Press the power button on both.** The first time, setup downloads about 150 MB and Windows asks once to allow the app on your private network.
 
-          > **Demo version.** Shows your real hardware, but connecting is simulated: no jobs run on your computer and nothing is sent anywhere. It never connects by itself and never starts with Windows.
+          > **Preview.** Groups are real Ray clusters on your local network, protected by the code's access token. Only join groups run by people you trust. GreenTokens jobs aren't sent to groups yet. Windows multi-computer Ray is experimental. Your network must be set to **Private** in Windows.
 
           To remove it: Windows **Settings → Apps → Installed apps → GreenTokens Provider → Uninstall**.
 
@@ -92,5 +110,5 @@ jobs:
           gh release delete "$RELEASE_TAG" --yes --cleanup-tag || true
           gh release create "$RELEASE_TAG" out/GreenTokens-Provider-Setup.exe \
             --prerelease --target "$GITHUB_SHA" \
-            --title "GreenTokens Provider for Windows (demo)" \
+            --title "GreenTokens Provider for Windows (preview)" \
             --notes-file notes.md

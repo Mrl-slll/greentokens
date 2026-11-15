@@ -1,4 +1,10 @@
-import type { Account, Activity, Preferences } from "../types/provider";
+import type { Account, Activity, Group, Preferences, PrepareResult } from "../types/provider";
+
+export interface StartContext {
+  group: Group | null;
+  /** Processor cores this computer offers, already derived from the sharing level. */
+  cpus: number;
+}
 
 /**
  * Everything the UI needs from GreenTokens. Today only the mock implements it.
@@ -9,8 +15,10 @@ export interface ProviderService {
   readonly mode: "mock" | "live";
   signIn(): Promise<Account>;
   signOut(): Promise<void>;
-  /** Resolves only once the worker/backend confirms the computer is available. */
-  start(preferences: Preferences): Promise<void>;
+  /** One-time setup (may take minutes the first time) plus a network check. */
+  prepare(): Promise<PrepareResult>;
+  /** Resolves only once the computer has actually joined (or started) its group. */
+  start(preferences: Preferences, context: StartContext): Promise<void>;
   /** Must stop new work immediately. Resolves once confirmed. */
   pause(): Promise<void>;
   /** Returns whether the limits are actually enforced. */

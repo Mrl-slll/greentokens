@@ -1,21 +1,23 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ProviderError, type ProviderService } from "../services/ProviderService";
 import type { HardwareDetector } from "../services/hardware";
-import { DEFAULT_PREFERENCES, type Account, type Activity, type HardwareResult, type Participation, type Preferences } from "../types/provider";
+import { newGroupToken } from "../services/liveProviderService";
+import { DEFAULT_PREFERENCES, GROUP_CODE_RE, type Account, type Activity, type Group, type HardwareResult, type Participation, type Preferences } from "../types/provider";
 
 const STORAGE_KEY = "greentokens.provider.v1";
 
-// Only consent, account and preferences are remembered. Participation is never
-// saved, so the app always opens Paused.
-interface Saved { consent: boolean; account: Account | null; preferences: Preferences }
+// Only consent, account, preferences and the group are remembered. Participation is never
+// saved, so the app always opens disconnected.
+interface Saved { consent: boolean; account: Account | null; preferences: Preferences; group: Group | null }
 
 function load(): Saved {
-  const fallback: Saved = { consent: false, account: null, preferences: DEFAULT_PREFERENCES };
+  const fallback: Saved = { consent: false, account: null, preferences: DEFAULT_PREFERENCES, group: null };
   try {
     const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "null");
     if (!parsed || typeof parsed !== "object") return fallback;
     return { consent: parsed.consent === true, account: parsed.account ?? null,
-      preferences: { ...DEFAULT_PREFERENCES, ...(parsed.preferences ?? {}) } };
+      preferences: { ...DEFAULT_PREFERENCES, ...(parsed.preferences ?? {}) },
+      group: parsed.group && (parsed.group.role === "host" || parsed.group.role === "member") && GROUP_CODE_RE.test(parsed.group.code) ? parsed.group : null };
   } catch { return fallback; }
 }
 function save(s: Saved) {
@@ -41,6 +43,13 @@ interface ProviderContext {
   hardware: HardwareResult | null;
   refreshHardware(): void;
   activity: Activity | null;
+  group: Group | null;
+  /** True while the one-time setup / network check runs. */
+  preparing: boolean;
+  groupError: string | null;
+  createGroup(): Promise<void>;
+  joinGroup(code: string): Promise<boolean>;
+  leaveGroup(): Promise<void>;
 }
 
 const Ctx = createContext<ProviderContext | null>(null);
@@ -52,6 +61,8 @@ export function ProviderProvider({ service, detectHardware, children }: { servic
   const [controlError, setControlError] = useState<string | null>(null);
   const [hardware, setHardware] = useState<HardwareResult | null>(null);
   const [activity, setActivity] = useState<Activity | null>(null);
+  const [preparing, setPreparing] = useState(false);
+  const [groupError, setGroupError] = useState<string | null>(null);
 
   // Read through a function so TypeScript doesn't keep narrowing across awaits.
   const current = () => participationRef.current;
@@ -82,7 +93,8 @@ export function ProviderProvider({ service, detectHardware, children }: { servic
       setParticipation("paused");
       try { await service.pause(); await service.signOut(); } catch { /* still reset locally */ }
       setControlError(null);
-      update({ account: null, consent: false, preferences: DEFAULT_PREFERENCES });
+      setGroupError(null);
+      update({ account: null, consent: false, preferences: DEFAULT_PREFERENCES, group: null });
     },
     participation,
     controlError,
@@ -92,7 +104,7 @@ export function ProviderProvider({ service, detectHardware, children }: { servic
       try {
         // First connect registers this device (simulated); there is no separate sign-in step.
         if (!saved.account) update({ account: await service.signIn() });
-        await service.start(saved.preferences);
+        await service.start(saved.preferences, { group: saved.group, cpus: cpusFor(saved.preferences.cpuPercent, hardware) });
         // If the user pressed Pause while we were starting, stay paused.
         if (current() === "starting") setParticipation("active");
       } catch (e) {
@@ -121,9 +133,44 @@ export function ProviderProvider({ service, detectHardware, children }: { servic
     hardware,
     refreshHardware,
     activity,
-  }), [service, saved, participation, controlError, hardware, refreshHardware, activity, update]);
+    group: saved.group,
+    preparing,
+    groupError,
+    async createGroup() {
+      setGroupError(null); setPreparing(true);
+      try {
+        const { lanIp } = await service.prepare();
+        update({ group: { role: "host", code: `GT1-${lanIp}-${newGroupToken()}` } });
+      } catch (e) { setGroupError(friendly(e, "Couldn't set up a group on this computer. Please try again.")); }
+      finally { setPreparing(false); }
+    },
+    async joinGroup(code) {
+      const clean = code.trim();
+      setGroupError(null);
+      if (!GROUP_CODE_RE.test(clean)) { setGroupError("That group code doesn't look right. Copy it again from the leader's computer."); return false; }
+      setPreparing(true);
+      try { await service.prepare(); update({ group: { role: "member", code: clean } }); return true; }
+      catch (e) { setGroupError(friendly(e, "Couldn't prepare this computer. Please try again.")); return false; }
+      finally { setPreparing(false); }
+    },
+    async leaveGroup() {
+      if (current() !== "paused") {
+        setParticipation("pausing");
+        try { await service.pause(); } catch { /* stop is best effort; leave anyway */ }
+        setParticipation("paused");
+      }
+      setGroupError(null);
+      update({ group: null });
+    },
+  }), [service, saved, participation, controlError, hardware, refreshHardware, activity, update, preparing, groupError]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
+}
+
+/** Processor cores to offer: the chosen share of this computer's threads, at least 1. */
+export function cpusFor(cpuPercent: number, hardware: HardwareResult | null) {
+  const threads = hardware?.status === "ok" ? hardware.hardware.threads : 2;
+  return Math.max(1, Math.round((threads * cpuPercent) / 100));
 }
 
 export function useProvider() {

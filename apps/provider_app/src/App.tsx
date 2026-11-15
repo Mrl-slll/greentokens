@@ -2,7 +2,8 @@ import { Activity, Cpu, Power, Settings } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
 import { ProviderProvider, useProvider } from "./hooks/useProvider";
 import { createMockProviderService } from "./services/mockProviderService";
-import { detectHardware as defaultDetectHardware, type HardwareDetector } from "./services/hardware";
+import { createLiveProviderService } from "./services/liveProviderService";
+import { detectHardware as defaultDetectHardware, inDesktopApp, type HardwareDetector } from "./services/hardware";
 import type { ProviderService } from "./services/ProviderService";
 import { Logo } from "./components/Logo";
 import { HardwareScreen } from "./screens/Hardware";
@@ -13,7 +14,8 @@ import { SettingsScreen } from "./screens/Settings";
 type Screen = "home" | "hardware" | "activity" | "settings";
 
 export default function App({ service, detectHardware = defaultDetectHardware }: { service?: ProviderService; detectHardware?: HardwareDetector }) {
-  const svc = useMemo(() => service ?? createMockProviderService(), [service]);
+  // Installed app: real groups. Browser preview and tests: the clearly labeled mock.
+  const svc = useMemo(() => service ?? (inDesktopApp() ? createLiveProviderService() : createMockProviderService()), [service]);
   return (
     <ProviderProvider service={svc} detectHardware={detectHardware}>
       <Shell />
@@ -22,7 +24,7 @@ export default function App({ service, detectHardware = defaultDetectHardware }:
 }
 
 function Shell() {
-  const { participation } = useProvider();
+  const { participation, service } = useProvider();
   // VPN-style: after signing in, the first thing you see is the Connect button.
   const [screen, setScreen] = useState<Screen>("home");
 
@@ -51,7 +53,9 @@ function Shell() {
       </aside>
       <div className="flex-1">
         <div role="note" className="border-b border-amber-200 bg-amber-50 px-6 py-2 text-sm text-amber-900">
-          <strong>Demo version.</strong> Connecting and activity are simulated; no jobs run on this computer. Hardware details are real.
+          {service.mode === "live"
+            ? <><strong>Preview.</strong> Groups connect computers on your local network. GreenTokens jobs aren't sent to groups yet.</>
+            : <><strong>Demo version.</strong> Connecting and activity are simulated; no jobs run on this computer. Hardware details are real.</>}
         </div>
         <main className="mx-auto max-w-4xl px-6 py-8">
           {screen === "home" && <HomeScreen />}

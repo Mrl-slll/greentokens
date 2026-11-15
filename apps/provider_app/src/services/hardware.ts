@@ -36,7 +36,7 @@ export function normalizeHardware(raw: unknown): Hardware {
 
 export type HardwareDetector = () => Promise<HardwareResult>;
 
-const inDesktopApp = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+export const inDesktopApp = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 export const detectHardware: HardwareDetector = async () => {
   if (!inDesktopApp()) {

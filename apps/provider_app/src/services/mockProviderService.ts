@@ -1,6 +1,6 @@
 // MOCK ONLY. Nothing here contacts GreenTokens or runs work on this computer.
 // The UI labels every value that comes from this service as "Demo".
-import { ProviderError, type ProviderService } from "./ProviderService";
+import { ProviderError, type ProviderService, type StartContext } from "./ProviderService";
 import type { Activity, ActivityItem, Preferences } from "../types/provider";
 
 export interface MockOptions {
@@ -57,8 +57,14 @@ export function createMockProviderService({ delayMs = 700, now = () => Date.now(
       current = null;
       history.length = 0;
     },
-    async start(preferences: Preferences) {
+    async prepare() {
       await wait();
+      if (options.disconnected) throw new ProviderError("We can't reach GreenTokens right now. Check your internet connection and try again.");
+      return { lanIp: "192.168.1.10", firewall: true, networkPrivate: true };
+    },
+    async start(preferences: Preferences, context: StartContext) {
+      await wait();
+      if (!context.group) throw new ProviderError("First start a group or join one with a code.");
       if (options.disconnected) throw new ProviderError("We can't reach GreenTokens, so your computer stays paused.");
       cpuLimit = preferences.cpuPercent;
       gpuEnabled = preferences.gpuEnabled;
