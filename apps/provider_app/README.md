@@ -1,6 +1,6 @@
 # GreenTokens Provider (Windows desktop app, demo)
 
-A beginner-friendly app that lets a PC owner choose whether and how much of their computer to share with GreenTokens: **Sign in → Check hardware → Choose limits → Start/Pause**.
+A beginner-friendly app that lets a PC owner choose whether and how much of their computer to share with GreenTokens: **Sign in → press the big Connect button** (choose Light, Balanced or Maximum sharing).
 
 **Status: demo.** Hardware detection is real. Sign-in, Start/Pause, limits enforcement and activity are **simulated** (clearly labeled in the UI) because the GreenTokens worker agent and provider APIs don't exist yet. See [INTEGRATION.md](INTEGRATION.md).
 
@@ -27,7 +27,7 @@ src/services/ProviderService.ts      interface the UI uses; swap the mock for a 
 src/services/mockProviderService.ts  MOCK implementation (in-memory, no network)
 src/services/hardware.ts             Tauri hardware call + normalisation
 src/hooks/useProvider.tsx            app state; participation is never persisted (always opens Paused)
-src/screens/                         Welcome, Hardware, Control, Activity, Settings
+src/screens/                         Welcome, Home (one-button connect), Hardware, Activity, Settings
 src-tauri/                           Rust shell, config, icons
 ```
 

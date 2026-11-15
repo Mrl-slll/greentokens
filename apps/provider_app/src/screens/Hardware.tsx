@@ -45,7 +45,7 @@ export function HardwareScreen({ onContinue }: { onContinue(): void }) {
         );
       })()}
 
-      <Button variant="primary" onClick={onContinue}>Continue to computing controls</Button>
+      <Button variant="primary" onClick={onContinue}>Back to Home</Button>
     </div>
   );
 }

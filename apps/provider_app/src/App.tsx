@@ -7,11 +7,11 @@ import type { ProviderService } from "./services/ProviderService";
 import { Logo } from "./components/Logo";
 import { Welcome } from "./screens/Welcome";
 import { HardwareScreen } from "./screens/Hardware";
-import { ControlScreen } from "./screens/Control";
+import { HomeScreen } from "./screens/Home";
 import { ActivityScreen } from "./screens/Activity";
 import { SettingsScreen } from "./screens/Settings";
 
-type Screen = "control" | "hardware" | "activity" | "settings";
+type Screen = "home" | "hardware" | "activity" | "settings";
 
 export default function App({ service, detectHardware = defaultDetectHardware }: { service?: ProviderService; detectHardware?: HardwareDetector }) {
   const svc = useMemo(() => service ?? createMockProviderService(), [service]);
@@ -24,13 +24,13 @@ export default function App({ service, detectHardware = defaultDetectHardware }:
 
 function Shell() {
   const { account, participation } = useProvider();
-  // A fresh sign-in starts on Hardware (Sign in → Detect hardware → Choose limits → Start).
-  const [screen, setScreen] = useState<Screen>("hardware");
+  // VPN-style: after signing in, the first thing you see is the Connect button.
+  const [screen, setScreen] = useState<Screen>("home");
 
   if (!account) return <Welcome />;
 
   const nav: { id: Screen; label: string; icon: ReactNode }[] = [
-    { id: "control", label: "Computing", icon: <Power aria-hidden /> },
+    { id: "home", label: "Home", icon: <Power aria-hidden /> },
     { id: "hardware", label: "My computer", icon: <Cpu aria-hidden /> },
     { id: "activity", label: "Activity", icon: <Activity aria-hidden /> },
     { id: "settings", label: "Settings", icon: <Settings aria-hidden /> },
@@ -49,7 +49,7 @@ function Shell() {
           ))}
         </nav>
         <p className="hidden px-5 py-4 text-sm text-slate-600 md:block">
-          Status: <strong>{participation === "active" ? "Available for jobs" : participation === "paused" ? "Paused" : participation === "starting" ? "Starting…" : "Pausing…"}</strong>
+          Status: <strong>{participation === "active" ? "Connected" : participation === "paused" ? "Not connected" : participation === "starting" ? "Connecting…" : "Disconnecting…"}</strong>
         </p>
       </aside>
       <div className="flex-1">
@@ -57,10 +57,10 @@ function Shell() {
           <strong>Demo version.</strong> Sign-in, computing and activity are simulated; no jobs run on this computer. Hardware details are real.
         </div>
         <main className="mx-auto max-w-4xl px-6 py-8">
-          {screen === "control" && <ControlScreen />}
-          {screen === "hardware" && <HardwareScreen onContinue={() => setScreen("control")} />}
+          {screen === "home" && <HomeScreen />}
+          {screen === "hardware" && <HardwareScreen onContinue={() => setScreen("home")} />}
           {screen === "activity" && <ActivityScreen />}
-          {screen === "settings" && <SettingsScreen onOpenLimits={() => setScreen("control")} />}
+          {screen === "settings" && <SettingsScreen onOpenLimits={() => setScreen("home")} />}
         </main>
       </div>
     </div>

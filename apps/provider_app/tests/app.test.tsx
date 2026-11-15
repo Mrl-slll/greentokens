@@ -20,7 +20,7 @@ function renderApp(service = createMockProviderService({ delayMs: 0 }), hw = det
 async function signIn() {
   fireEvent.click(screen.getByRole("checkbox", { name: /I understand/ }));
   fireEvent.click(screen.getByRole("button", { name: "Sign in (demo)" }));
-  await screen.findByRole("heading", { name: "Your computer" });
+  await screen.findByRole("button", { name: "Connect", hidden: false });
 }
 
 it("requires explicit consent before sign-in", () => {
@@ -38,66 +38,56 @@ it("shows a friendly error when sign-in fails", async () => {
   fireEvent.click(screen.getByRole("checkbox", { name: /I understand/ }));
   fireEvent.click(screen.getByRole("button", { name: "Sign in (demo)" }));
   expect((await screen.findByRole("alert")).textContent).toMatch(/couldn't sign you in/);
-  expect(screen.queryByRole("heading", { name: "Your computer" })).toBeNull();
+  expect(screen.queryByRole("radiogroup")).toBeNull();
 });
 
-it("starts paused, only shows available after confirmation, and pauses", async () => {
+it("starts disconnected, only shows Connected after confirmation, and disconnects", async () => {
   renderApp();
   await signIn();
-  fireEvent.click(screen.getByRole("button", { name: "Continue to computing controls" }));
-  expect(screen.getByRole("heading", { name: "Paused" })).toBeTruthy();
-  const start = screen.getByRole("button", { name: /Start Computing/ }) as HTMLButtonElement;
-  const pause = screen.getByRole("button", { name: /Pause Computing/ }) as HTMLButtonElement;
-  expect(pause.disabled).toBe(true);
-
-  fireEvent.click(start);
-  expect(screen.getByRole("heading", { name: "Starting…" })).toBeTruthy();
-  await screen.findByRole("heading", { name: "Your computer is available for jobs" });
-
-  fireEvent.click(pause);
-  await screen.findByRole("heading", { name: "Paused" });
-  expect(start.disabled).toBe(false);
+  expect(screen.getByRole("heading", { name: "Not connected" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+  expect(screen.getByRole("heading", { name: "Connecting…" })).toBeTruthy();
+  await screen.findByRole("heading", { name: "Connected" });
+  fireEvent.click(screen.getByRole("button", { name: "Disconnect" }));
+  await screen.findByRole("heading", { name: "Not connected" });
 });
 
-it("stays paused when GreenTokens is unreachable", async () => {
+it("stays disconnected when GreenTokens is unreachable", async () => {
   const service = renderApp();
   await signIn();
   service.options.disconnected = true;
-  fireEvent.click(screen.getByRole("button", { name: "Continue to computing controls" }));
-  fireEvent.click(screen.getByRole("button", { name: /Start Computing/ }));
+  fireEvent.click(screen.getByRole("button", { name: "Connect" }));
   expect((await screen.findByRole("alert")).textContent).toMatch(/stays paused/);
-  expect(screen.getByRole("heading", { name: "Paused" })).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "Not connected" })).toBeTruthy();
 });
 
-it("opens paused after a restart while keeping the sign-in and saved limits", async () => {
+it("opens disconnected after a restart while keeping the sign-in and chosen level", async () => {
   renderApp();
   await signIn();
-  fireEvent.click(screen.getByRole("button", { name: "Continue to computing controls" }));
-  fireEvent.change(screen.getByLabelText(/Processor \(CPU\)/), { target: { value: "70" } });
-  fireEvent.click(screen.getByRole("button", { name: "Save preferences" }));
-  await screen.findByText(/aren't enforced yet/);
-  fireEvent.click(screen.getByRole("button", { name: /Start Computing/ }));
-  await screen.findByRole("heading", { name: "Your computer is available for jobs" });
+  fireEvent.click(screen.getByRole("radio", { name: /Maximum/ }));
+  await screen.findByText(/Limits aren't enforced yet/);
+  fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+  await screen.findByRole("heading", { name: "Connected" });
 
   cleanup(); // "restart" the app
   renderApp();
-  fireEvent.click(await screen.findByRole("button", { name: "Computing" }));
-  expect(screen.getByRole("heading", { name: "Paused" })).toBeTruthy();
-  expect(screen.getByText("Up to 70%")).toBeTruthy();
+  await screen.findByRole("button", { name: "Connect" });
+  expect(screen.getByRole("heading", { name: "Not connected" })).toBeTruthy();
+  expect(screen.getByRole("radio", { name: /Maximum/ }).getAttribute("aria-checked")).toBe("true");
 });
 
-it("shows no-GPU hardware plainly and disables GPU sharing", async () => {
+it("shows no-GPU hardware plainly", async () => {
   renderApp();
   await signIn();
+  fireEvent.click(screen.getByRole("button", { name: "My computer" }));
   expect(await screen.findByText(/No graphics card detected/)).toBeTruthy();
   expect(screen.getByText("Test CPU")).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "Continue to computing controls" }));
-  expect((screen.getByRole("switch", { name: /Share graphics card/ }) as HTMLButtonElement).disabled).toBe(true);
 });
 
 it("shows the browser-preview message when hardware can't be read", async () => {
   renderApp(undefined, detect({ status: "unavailable", reason: "browser", message: "Hardware details are shown in the installed desktop app." }));
   await signIn();
+  fireEvent.click(screen.getByRole("button", { name: "My computer" }));
   expect(screen.getByText(/shown in the installed desktop app/)).toBeTruthy();
 });
 

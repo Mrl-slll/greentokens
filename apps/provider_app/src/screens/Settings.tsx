@@ -47,8 +47,8 @@ export function SettingsScreen({ onOpenLimits }: { onOpenLimits(): void }) {
             description="Saved on this computer. The demo doesn't send notifications yet."
             onChange={(notifications) => void savePreferences({ ...preferences, notifications })} />
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div><p className="font-medium">Resource limits</p><p className="text-sm text-slate-500">Processor, memory and graphics sharing.</p></div>
-            <Button onClick={onOpenLimits}>Change limits</Button>
+            <div><p className="font-medium">Resource limits</p><p className="text-sm text-slate-500">Choose Light, Balanced or Maximum on the Home screen.</p></div>
+            <Button onClick={onOpenLimits}>Go to Home</Button>
           </div>
         </div>
       </Card>
