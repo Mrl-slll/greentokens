@@ -281,7 +281,17 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - name: Build installer
-        run: npm run tauri build
+        shell: bash
+        run: |
+          set +e
+          npm run tauri build 2>&1 | tee build.log
+          code=${PIPESTATUS[0]}
+          if [ "$code" -ne 0 ]; then
+            # Surface the failure as annotations so it is readable without opening the raw log.
+            grep -n -E "^(error|warning: unused)|-->|Error|failed" build.log | head -30 | while IFS= read -r line; do echo "::error::${line:0:400}"; done
+            tail -n 25 build.log | while IFS= read -r line; do echo "::error::tail: ${line:0:400}"; done
+          fi
+          exit "$code"
 
       - name: Collect installer
         shell: bash
