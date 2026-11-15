@@ -29,13 +29,12 @@ interface ProviderContext {
   consent: boolean;
   setConsent(v: boolean): void;
   account: Account | null;
-  signingIn: boolean;
-  signInError: string | null;
-  signIn(): Promise<void>;
-  signOut(): Promise<void>;
+  /** Forget this device and consent; pauses first. */
+  reset(): Promise<void>;
   participation: Participation;
   controlError: string | null;
-  start(): Promise<void>;
+  /** consented: pass true when the user has just agreed in the first-connect prompt. */
+  start(opts?: { consented?: boolean }): Promise<void>;
   pause(): Promise<void>;
   preferences: Preferences;
   savePreferences(p: Preferences): Promise<{ enforced: boolean } | null>;
@@ -48,8 +47,6 @@ const Ctx = createContext<ProviderContext | null>(null);
 
 export function ProviderProvider({ service, detectHardware, children }: { service: ProviderService; detectHardware: HardwareDetector; children: ReactNode }) {
   const [saved, setSaved] = useState<Saved>(load);
-  const [signingIn, setSigningIn] = useState(false);
-  const [signInError, setSignInError] = useState<string | null>(null);
   const [participation, setParticipationState] = useState<Participation>("paused");
   const participationRef = useRef<Participation>("paused");
   const [controlError, setControlError] = useState<string | null>(null);
@@ -67,43 +64,34 @@ export function ProviderProvider({ service, detectHardware, children }: { servic
   }, [detectHardware]);
   useEffect(refreshHardware, [refreshHardware]);
 
-  // Poll activity while signed in.
-  const signedIn = saved.account !== null;
+  // Poll activity for the lifetime of the app.
   useEffect(() => {
-    if (!signedIn) { setActivity(null); return; }
     let cancelled = false;
     const tick = () => service.getActivity().then((a) => { if (!cancelled) setActivity(a); }, () => undefined);
     tick();
     const id = setInterval(tick, 1000);
     return () => { cancelled = true; clearInterval(id); };
-  }, [service, signedIn]);
+  }, [service]);
 
   const value = useMemo<ProviderContext>(() => ({
     service,
     consent: saved.consent,
     setConsent: (consent) => update({ consent }),
     account: saved.account,
-    signingIn,
-    signInError,
-    async signIn() {
-      if (!saved.consent) return;
-      setSigningIn(true); setSignInError(null);
-      try { update({ account: await service.signIn() }); }
-      catch (e) { setSignInError(friendly(e, "We couldn't sign you in. Please try again.")); }
-      finally { setSigningIn(false); }
-    },
-    async signOut() {
+    async reset() {
       setParticipation("paused");
-      try { await service.pause(); await service.signOut(); } catch { /* still sign out locally */ }
+      try { await service.pause(); await service.signOut(); } catch { /* still reset locally */ }
       setControlError(null);
       update({ account: null, consent: false, preferences: DEFAULT_PREFERENCES });
     },
     participation,
     controlError,
-    async start() {
-      if (current() !== "paused") return;
+    async start(opts) {
+      if (current() !== "paused" || !(saved.consent || opts?.consented)) return;
       setControlError(null); setParticipation("starting");
       try {
+        // First connect registers this device (simulated); there is no separate sign-in step.
+        if (!saved.account) update({ account: await service.signIn() });
         await service.start(saved.preferences);
         // If the user pressed Pause while we were starting, stay paused.
         if (current() === "starting") setParticipation("active");
@@ -133,7 +121,7 @@ export function ProviderProvider({ service, detectHardware, children }: { servic
     hardware,
     refreshHardware,
     activity,
-  }), [service, saved, signingIn, signInError, participation, controlError, hardware, refreshHardware, activity, update]);
+  }), [service, saved, participation, controlError, hardware, refreshHardware, activity, update]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

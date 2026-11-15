@@ -1,9 +1,12 @@
 import { useState } from "react";
 import { useProvider } from "../hooks/useProvider";
 import { Button, Card, DemoBadge, Toggle } from "../components/ui";
+import type { MockProviderService } from "../services/mockProviderService";
 
 export function SettingsScreen({ onOpenLimits }: { onOpenLimits(): void }) {
-  const { account, preferences, savePreferences, signOut, hardware } = useProvider();
+  const { account, preferences, savePreferences, reset, hardware, service } = useProvider();
+  const mock = service.mode === "mock" ? (service as MockProviderService) : null;
+  const [, rerender] = useState(0);
   const hostname = hardware?.status === "ok" ? hardware.hardware.hostname : "";
   const [name, setName] = useState(preferences.deviceName || hostname);
   const [nameSaved, setNameSaved] = useState(false);
@@ -22,8 +25,8 @@ export function SettingsScreen({ onOpenLimits }: { onOpenLimits(): void }) {
 
       <Card title="Account" badge={<DemoBadge />}>
         <dl className="grid grid-cols-[max-content_1fr] gap-x-6 gap-y-2 text-sm">
-          <dt className="text-slate-500">Signed in as</dt><dd>{account?.displayName}</dd>
-          <dt className="text-slate-500">Device ID</dt><dd className="font-mono">{account?.deviceId}</dd>
+          <dt className="text-slate-500">Status</dt><dd>{account ? account.displayName : "Not set up yet. This happens on your first Connect."}</dd>
+          <dt className="text-slate-500">Device ID</dt><dd className="font-mono">{account?.deviceId ?? "–"}</dd>
         </dl>
         <p className="mt-3 text-sm text-slate-500">Real GreenTokens accounts aren't available in this demo.</p>
       </Card>
@@ -65,17 +68,24 @@ export function SettingsScreen({ onOpenLimits }: { onOpenLimits(): void }) {
         </ol>
       </Card>
 
-      <Card title="Sign out">
-        <p className="text-sm text-slate-600">Signing out pauses computing and clears this app's saved settings on this computer.</p>
+      <Card title="Reset">
+        <p className="text-sm text-slate-600">Disconnects and clears this app's saved settings on this computer. You'll be asked to agree again on the next Connect.</p>
         {!confirmSignOut
-          ? <Button variant="danger" className="mt-3" onClick={() => setConfirmSignOut(true)}>Sign out</Button>
+          ? <Button variant="danger" className="mt-3" onClick={() => setConfirmSignOut(true)}>Reset app</Button>
           : (
             <div className="mt-3 flex flex-wrap gap-2">
-              <Button variant="danger" onClick={() => void signOut()}>Yes, sign out</Button>
+              <Button variant="danger" onClick={() => void reset()}>Yes, reset</Button>
               <Button onClick={() => setConfirmSignOut(false)}>Cancel</Button>
             </div>
           )}
       </Card>
+
+      {mock && (
+        <details className="rounded-xl border border-dashed border-slate-300 bg-white p-4 text-sm">
+          <summary className="cursor-pointer font-medium">Demo options (for testing)</summary>
+          <label className="mt-3 flex items-center gap-2"><input type="checkbox" className="accent-emerald-700" checked={mock.options.disconnected} onChange={(e) => { mock.options.disconnected = e.target.checked; rerender((n) => n + 1); }} /> Simulate GreenTokens being unreachable</label>
+        </details>
+      )}
     </div>
   );
 }

@@ -1,17 +1,17 @@
 # GreenTokens Provider (Windows desktop app, demo)
 
-A beginner-friendly app that lets a PC owner choose whether and how much of their computer to share with GreenTokens: **Sign in → press the big Connect button** (choose Light, Balanced or Maximum sharing).
+Works like a VPN app: **install it, open it, press the big power button.**
 
-**Status: demo.** Hardware detection is real. Sign-in, Start/Pause, limits enforcement and activity are **simulated** (clearly labeled in the UI) because the GreenTokens worker agent and provider APIs don't exist yet. See [INTEGRATION.md](INTEGRATION.md).
+**Status: demo.** Hardware detection is real. Connecting, limits and activity are **simulated** (labeled in the UI) because the GreenTokens worker agent and provider APIs don't exist yet. See [INTEGRATION.md](INTEGRATION.md).
 
-## Download and install (any Windows 10/11 PC)
+## Download (Windows 10/11)
 
-1. Download **[GreenTokens-Provider-Setup.exe](https://github.com/Mrl-slll/greentokens/releases/download/provider-v0.1.0/GreenTokens-Provider-Setup.exe)**.
-2. Run it. The build is not code-signed yet, so Windows may show *"Windows protected your PC"*. Choose **More info → Run anyway**.
-3. It installs for your user account only (no administrator rights) and adds **GreenTokens Provider** to the Start menu.
-4. Uninstall any time: **Settings → Apps → Installed apps → GreenTokens Provider → Uninstall**.
+**[Download GreenTokens-Provider-Setup.exe](https://github.com/Mrl-slll/greentokens/releases/download/provider-v0.1.0/GreenTokens-Provider-Setup.exe)**
 
-The app never starts at login and never starts sharing by itself; it always opens **Paused**.
+1. Open the file. If Windows says *"Windows protected your PC"*, click **More info → Run anyway** (the demo build isn't code-signed yet).
+2. Open **GreenTokens Provider** from the Start menu and press the power button. The first time, you'll be asked to agree once.
+
+No administrator password, no account, no terminal. It never connects by itself, always opens disconnected, and doesn't start with Windows. To remove it: **Settings → Apps → Installed apps → GreenTokens Provider → Uninstall**.
 
 ## How it's built
 
@@ -27,7 +27,7 @@ src/services/ProviderService.ts      interface the UI uses; swap the mock for a 
 src/services/mockProviderService.ts  MOCK implementation (in-memory, no network)
 src/services/hardware.ts             Tauri hardware call + normalisation
 src/hooks/useProvider.tsx            app state; participation is never persisted (always opens Paused)
-src/screens/                         Welcome, Home (one-button connect), Hardware, Activity, Settings
+src/screens/                         Home (one-button connect + consent prompt), Hardware, Activity, Settings
 src-tauri/                           Rust shell, config, icons
 ```
 

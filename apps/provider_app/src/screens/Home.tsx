@@ -2,7 +2,7 @@ import { Power } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useProvider } from "../hooks/useProvider";
 import { formatGb } from "../services/hardware";
-import { formatDuration } from "../components/ui";
+import { Button, formatDuration } from "../components/ui";
 import type { Participation, Preferences } from "../types/provider";
 
 const LABEL: Record<Participation, { title: string; detail: string }> = {
@@ -28,7 +28,8 @@ export function currentLevel(p: Preferences, ramGb: number | null): Level | null
 }
 
 export function HomeScreen() {
-  const { participation, start, pause, controlError, preferences, savePreferences, hardware, activity } = useProvider();
+  const { participation, start, pause, controlError, preferences, savePreferences, hardware, activity, consent, setConsent } = useProvider();
+  const [asking, setAsking] = useState(false);
   const ramGb = hardware?.status === "ok" ? hardware.hardware.ramGb : null;
   const label = LABEL[participation];
   const connected = participation === "active";
@@ -49,7 +50,7 @@ export function HomeScreen() {
     <div className="flex flex-col items-center gap-6 text-center">
       <button
         type="button"
-        onClick={() => void (participation === "paused" ? start() : pause())}
+        onClick={() => { if (participation !== "paused") void pause(); else if (!consent) setAsking(true); else void start(); }}
         disabled={participation === "pausing"}
         aria-label={participation === "paused" ? "Connect" : "Disconnect"}
         className={`mt-4 flex h-48 w-48 items-center justify-center rounded-full shadow-xl ring-8 transition-colors disabled:cursor-wait ${ring}`}
@@ -63,6 +64,17 @@ export function HomeScreen() {
         {connected && since !== null && <p className="mt-1 font-mono text-sm text-slate-500">{formatDuration((Date.now() - since) / 1000)}</p>}
         {connected && activity?.currentJob && <p className="mt-1 text-sm text-slate-600">Working on: {activity.currentJob.name}</p>}
       </div>
+      {asking && !consent && participation === "paused" && (
+        <section role="dialog" aria-label="Before you connect" className="w-full rounded-2xl border border-emerald-200 bg-white p-5 text-left shadow-sm">
+          <h2 className="font-semibold">Before you connect</h2>
+          <p className="mt-1 text-sm text-slate-600">While connected, GreenTokens may use some of your computer's processor and memory, which can use more power and make it feel slower. You can disconnect any time, and it never connects by itself.</p>
+          <p className="mt-2 text-xs text-slate-500">Demo version: nothing actually runs on your computer.</p>
+          <div className="mt-4 flex gap-2">
+            <Button variant="primary" onClick={() => { setConsent(true); setAsking(false); void start({ consented: true }); }}>Agree &amp; Connect</Button>
+            <Button onClick={() => setAsking(false)}>Not now</Button>
+          </div>
+        </section>
+      )}
       {controlError && <p role="alert" className="w-full rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">{controlError}</p>}
 
       <section className="w-full text-left">

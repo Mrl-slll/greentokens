@@ -17,68 +17,66 @@ function renderApp(service = createMockProviderService({ delayMs: 0 }), hw = det
   return service;
 }
 
-async function signIn() {
-  fireEvent.click(screen.getByRole("checkbox", { name: /I understand/ }));
-  fireEvent.click(screen.getByRole("button", { name: "Sign in (demo)" }));
-  await screen.findByRole("button", { name: "Connect", hidden: false });
-}
+const connect = () => fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+const agree = () => fireEvent.click(screen.getByRole("button", { name: "Agree & Connect" }));
 
-it("requires explicit consent before sign-in", () => {
+it("opens straight to a single Connect button, disconnected, with no sign-in step", () => {
   renderApp();
-  const button = screen.getByRole("button", { name: "Sign in (demo)" }) as HTMLButtonElement;
-  expect(button.disabled).toBe(true);
-  fireEvent.click(screen.getByRole("checkbox", { name: /I understand/ }));
-  expect(button.disabled).toBe(false);
-});
-
-it("shows a friendly error when sign-in fails", async () => {
-  const service = createMockProviderService({ delayMs: 0 });
-  service.options.failSignIn = true;
-  renderApp(service);
-  fireEvent.click(screen.getByRole("checkbox", { name: /I understand/ }));
-  fireEvent.click(screen.getByRole("button", { name: "Sign in (demo)" }));
-  expect((await screen.findByRole("alert")).textContent).toMatch(/couldn't sign you in/);
-  expect(screen.queryByRole("radiogroup")).toBeNull();
-});
-
-it("starts disconnected, only shows Connected after confirmation, and disconnects", async () => {
-  renderApp();
-  await signIn();
   expect(screen.getByRole("heading", { name: "Not connected" })).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+  expect(screen.getByRole("button", { name: "Connect" })).toBeTruthy();
+  expect(screen.queryByText(/sign in/i)).toBeNull();
+});
+
+it("asks for consent on the first Connect and does not connect until the user agrees", async () => {
+  renderApp();
+  connect();
+  expect(screen.getByRole("dialog", { name: "Before you connect" })).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "Not connected" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Not now" }));
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(screen.getByRole("heading", { name: "Not connected" })).toBeTruthy();
+});
+
+it("connects only after confirmation, then disconnects; later connects don't ask again", async () => {
+  renderApp();
+  connect();
+  agree();
   expect(screen.getByRole("heading", { name: "Connecting…" })).toBeTruthy();
   await screen.findByRole("heading", { name: "Connected" });
   fireEvent.click(screen.getByRole("button", { name: "Disconnect" }));
   await screen.findByRole("heading", { name: "Not connected" });
+  connect();
+  expect(screen.queryByRole("dialog")).toBeNull();
+  await screen.findByRole("heading", { name: "Connected" });
 });
 
-it("stays disconnected when GreenTokens is unreachable", async () => {
+it("stays disconnected and explains when GreenTokens is unreachable", async () => {
   const service = renderApp();
-  await signIn();
   service.options.disconnected = true;
-  fireEvent.click(screen.getByRole("button", { name: "Connect" }));
-  expect((await screen.findByRole("alert")).textContent).toMatch(/stays paused/);
+  connect();
+  agree();
+  expect((await screen.findByRole("alert")).textContent).toMatch(/can't reach GreenTokens/);
   expect(screen.getByRole("heading", { name: "Not connected" })).toBeTruthy();
 });
 
-it("opens disconnected after a restart while keeping the sign-in and chosen level", async () => {
+it("opens disconnected after a restart while keeping consent and the chosen level", async () => {
   renderApp();
-  await signIn();
   fireEvent.click(screen.getByRole("radio", { name: /Maximum/ }));
   await screen.findByText(/Limits aren't enforced yet/);
-  fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+  connect();
+  agree();
   await screen.findByRole("heading", { name: "Connected" });
 
   cleanup(); // "restart" the app
   renderApp();
-  await screen.findByRole("button", { name: "Connect" });
   expect(screen.getByRole("heading", { name: "Not connected" })).toBeTruthy();
   expect(screen.getByRole("radio", { name: /Maximum/ }).getAttribute("aria-checked")).toBe("true");
+  connect();
+  expect(screen.queryByRole("dialog")).toBeNull(); // already agreed
 });
 
 it("shows no-GPU hardware plainly", async () => {
   renderApp();
-  await signIn();
   fireEvent.click(screen.getByRole("button", { name: "My computer" }));
   expect(await screen.findByText(/No graphics card detected/)).toBeTruthy();
   expect(screen.getByText("Test CPU")).toBeTruthy();
@@ -86,26 +84,28 @@ it("shows no-GPU hardware plainly", async () => {
 
 it("shows the browser-preview message when hardware can't be read", async () => {
   renderApp(undefined, detect({ status: "unavailable", reason: "browser", message: "Hardware details are shown in the installed desktop app." }));
-  await signIn();
   fireEvent.click(screen.getByRole("button", { name: "My computer" }));
-  expect(screen.getByText(/shown in the installed desktop app/)).toBeTruthy();
+  expect(await screen.findByText(/shown in the installed desktop app/)).toBeTruthy();
 });
 
-it("never shows invented earnings and lists completed jobs", async () => {
+it("never shows invented earnings", async () => {
   renderApp();
-  await signIn();
   fireEvent.click(screen.getByRole("button", { name: "Activity" }));
   expect(await screen.findByText("Unavailable")).toBeTruthy();
   expect(screen.getByText(/not offered during the pilot/)).toBeTruthy();
   expect(screen.getByText(/No jobs yet/)).toBeTruthy();
 });
 
-it("sign out pauses, clears saved state and returns to Welcome", async () => {
+it("reset disconnects, forgets consent and asks again next time", async () => {
   renderApp();
-  await signIn();
+  connect();
+  agree();
+  await screen.findByRole("heading", { name: "Connected" });
   fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-  fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
-  fireEvent.click(screen.getByRole("button", { name: "Yes, sign out" }));
-  await screen.findByRole("button", { name: "Sign in (demo)" });
-  expect((screen.getByRole("checkbox", { name: /I understand/ }) as HTMLInputElement).checked).toBe(false);
+  fireEvent.click(screen.getByRole("button", { name: "Reset app" }));
+  fireEvent.click(screen.getByRole("button", { name: "Yes, reset" }));
+  fireEvent.click(screen.getByRole("button", { name: "Home" }));
+  expect(await screen.findByRole("heading", { name: "Not connected" })).toBeTruthy();
+  connect();
+  expect(screen.getByRole("dialog", { name: "Before you connect" })).toBeTruthy();
 });

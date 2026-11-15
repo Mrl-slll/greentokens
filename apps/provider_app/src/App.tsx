@@ -5,7 +5,6 @@ import { createMockProviderService } from "./services/mockProviderService";
 import { detectHardware as defaultDetectHardware, type HardwareDetector } from "./services/hardware";
 import type { ProviderService } from "./services/ProviderService";
 import { Logo } from "./components/Logo";
-import { Welcome } from "./screens/Welcome";
 import { HardwareScreen } from "./screens/Hardware";
 import { HomeScreen } from "./screens/Home";
 import { ActivityScreen } from "./screens/Activity";
@@ -23,11 +22,9 @@ export default function App({ service, detectHardware = defaultDetectHardware }:
 }
 
 function Shell() {
-  const { account, participation } = useProvider();
+  const { participation } = useProvider();
   // VPN-style: after signing in, the first thing you see is the Connect button.
   const [screen, setScreen] = useState<Screen>("home");
-
-  if (!account) return <Welcome />;
 
   const nav: { id: Screen; label: string; icon: ReactNode }[] = [
     { id: "home", label: "Home", icon: <Power aria-hidden /> },
@@ -54,7 +51,7 @@ function Shell() {
       </aside>
       <div className="flex-1">
         <div role="note" className="border-b border-amber-200 bg-amber-50 px-6 py-2 text-sm text-amber-900">
-          <strong>Demo version.</strong> Sign-in, computing and activity are simulated; no jobs run on this computer. Hardware details are real.
+          <strong>Demo version.</strong> Connecting and activity are simulated; no jobs run on this computer. Hardware details are real.
         </div>
         <main className="mx-auto max-w-4xl px-6 py-8">
           {screen === "home" && <HomeScreen />}
