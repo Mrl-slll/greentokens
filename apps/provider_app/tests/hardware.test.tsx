@@ -33,8 +33,12 @@ it("handles PowerShell 5.1 array shapes and drops software display adapters", ()
 it("mock stops accepting jobs immediately on pause", async () => {
   let t = 0;
   const service = createMockProviderService({ delayMs: 0, now: () => t });
+<<<<<<< HEAD
   await service.signIn({ username: "test", password: "test-only-password-123", deviceId: "device-0001" });
   await service.start({ cpuPercent: 50, ramGb: 4, gpuEnabled: false, notifications: true, deviceName: "" }, { deviceId: "device-0001", deviceName: "PC", cpus: 2 });
+=======
+  await service.start({ cpuPercent: 50, ramGb: 4, gpuEnabled: false, notifications: true, deviceName: "" });
+>>>>>>> d5fa911 (Add GreenTokens Provider Windows desktop app (demo))
   t = 20_000;
   const busy = await service.getActivity();
   expect(busy.completedCount).toBeGreaterThan(0);

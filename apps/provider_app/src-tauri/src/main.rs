@@ -1,6 +1,7 @@
 // Hide the console window in release builds on Windows.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+<<<<<<< HEAD
 mod agent;
 mod hardware;
 mod usage;
@@ -23,6 +24,13 @@ fn main() {
                 agent::stop_on_exit(window.app_handle());
             }
         })
+=======
+mod hardware;
+
+fn main() {
+    tauri::Builder::default()
+        .invoke_handler(tauri::generate_handler![hardware::detect_hardware])
+>>>>>>> d5fa911 (Add GreenTokens Provider Windows desktop app (demo))
         .run(tauri::generate_context!())
         .expect("error while running GreenTokens Provider");
 }

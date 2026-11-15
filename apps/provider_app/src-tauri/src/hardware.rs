@@ -1,7 +1,10 @@
 //! Read-only hardware summary. Runs one fixed, bundled PowerShell/CIM script;
 //! no user input reaches the command line, and no shell access is exposed to the UI.
 
+<<<<<<< HEAD
 #[cfg_attr(not(windows), allow(dead_code))]
+=======
+>>>>>>> d5fa911 (Add GreenTokens Provider Windows desktop app (demo))
 const SCRIPT: &str = include_str!("detect_hardware.ps1");
 
 #[tauri::command]
@@ -31,6 +34,7 @@ fn run() -> Result<serde_json::Value, String> {
         .map_err(|_| "Hardware detection returned unreadable data".to_string())
 }
 
+<<<<<<< HEAD
 #[cfg(target_os = "macos")]
 fn run() -> Result<serde_json::Value, String> {
     use std::process::Command;
@@ -94,6 +98,14 @@ fn run() -> Result<serde_json::Value, String> {
 
 /// PowerShell -EncodedCommand expects Base64 of UTF-16LE text.
 #[cfg_attr(not(windows), allow(dead_code))]
+=======
+#[cfg(not(windows))]
+fn run() -> Result<serde_json::Value, String> {
+    Err("Hardware detection currently supports Windows only".to_string())
+}
+
+/// PowerShell -EncodedCommand expects Base64 of UTF-16LE text.
+>>>>>>> d5fa911 (Add GreenTokens Provider Windows desktop app (demo))
 fn encode_command(script: &str) -> String {
     const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let bytes: Vec<u8> = script.encode_utf16().flat_map(|unit| unit.to_le_bytes()).collect();

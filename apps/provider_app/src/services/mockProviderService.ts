@@ -1,7 +1,12 @@
 // MOCK ONLY. Nothing here contacts GreenTokens or runs work on this computer.
 // The UI labels every value that comes from this service as "Demo".
+<<<<<<< HEAD
 import { ProviderError, type ProviderService, type StartContext } from "./ProviderService";
 import type { Activity, ActivityItem, Credentials, Preferences } from "../types/provider";
+=======
+import { ProviderError, type ProviderService } from "./ProviderService";
+import type { Activity, ActivityItem, Preferences } from "../types/provider";
+>>>>>>> d5fa911 (Add GreenTokens Provider Windows desktop app (demo))
 
 export interface MockOptions {
   failSignIn: boolean;
@@ -24,6 +29,7 @@ export function createMockProviderService({ delayMs = 700, now = () => Date.now(
   let current: ActivityItem | null = null;
   const history: ActivityItem[] = [];
   const wait = () => new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+<<<<<<< HEAD
   let signedIn = false;
   async function authenticate(credentials: Credentials) {
     await wait();
@@ -32,6 +38,8 @@ export function createMockProviderService({ delayMs = 700, now = () => Date.now(
     signedIn = true;
     return { displayName: credentials.username.trim().toLowerCase(), deviceId: credentials.deviceId };
   }
+=======
+>>>>>>> d5fa911 (Add GreenTokens Provider Windows desktop app (demo))
 
   function newJob(startedAt: number): ActivityItem {
     const n = sequence++;
@@ -54,14 +62,25 @@ export function createMockProviderService({ delayMs = 700, now = () => Date.now(
   return {
     mode: "mock",
     options,
+<<<<<<< HEAD
     signIn: authenticate,
     signUp: authenticate,
     async signOut() {
       signedIn = false;
+=======
+    async signIn() {
+      await wait();
+      if (options.disconnected) throw new ProviderError("We can't reach GreenTokens right now. Check your internet connection and try again.");
+      if (options.failSignIn) throw new ProviderError("We couldn't sign you in. Please try again.");
+      return { displayName: "Demo provider", deviceId: `demo-${Math.random().toString(36).slice(2, 8)}` };
+    },
+    async signOut() {
+>>>>>>> d5fa911 (Add GreenTokens Provider Windows desktop app (demo))
       activeSince = null;
       current = null;
       history.length = 0;
     },
+<<<<<<< HEAD
     async prepare() {
       await wait();
       if (options.disconnected) throw new ProviderError("We can't reach GreenTokens right now. Check your internet connection and try again.");
@@ -70,6 +89,10 @@ export function createMockProviderService({ delayMs = 700, now = () => Date.now(
     async start(preferences: Preferences, _context: StartContext) {
       await wait();
       if (!signedIn) throw new ProviderError("Sign in before connecting.");
+=======
+    async start(preferences: Preferences) {
+      await wait();
+>>>>>>> d5fa911 (Add GreenTokens Provider Windows desktop app (demo))
       if (options.disconnected) throw new ProviderError("We can't reach GreenTokens, so your computer stays paused.");
       cpuLimit = preferences.cpuPercent;
       gpuEnabled = preferences.gpuEnabled;

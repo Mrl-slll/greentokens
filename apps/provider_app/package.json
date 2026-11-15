@@ -1,7 +1,11 @@
 {
   "name": "greentokens-provider",
   "private": true,
+<<<<<<< HEAD
   "version": "0.3.1",
+=======
+  "version": "0.1.0",
+>>>>>>> d5fa911 (Add GreenTokens Provider Windows desktop app (demo))
   "type": "module",
   "scripts": {
     "dev": "vite",

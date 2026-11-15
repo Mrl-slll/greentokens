@@ -5,6 +5,7 @@ import { DEFAULT_PREFERENCES, type Account, type Activity, type HardwareResult, 
 
 const STORAGE_KEY = "greentokens.provider.v1";
 
+<<<<<<< HEAD
 // Only non-secret device settings are remembered. Account/session are memory-only.
 interface Saved { consent: boolean; preferences: Preferences;
   deviceId: string; accountDevices: Record<string, string>; setupDone: boolean; setupNote: string }
@@ -26,6 +27,19 @@ function load(): Saved {
       accountDevices: Object.fromEntries(Object.entries(parsed.accountDevices ?? {}).filter(([key, value]) =>
         /^account:[a-z0-9][a-z0-9_-]{2,31}$/.test(key) && typeof value === "string" && /^[A-Za-z0-9-]{8,64}$/.test(value)).map(([key, value]) => [key, value as string])),
       setupDone: parsed.setupDone === true, setupNote: typeof parsed.setupNote === "string" ? parsed.setupNote : "" };
+=======
+// Only consent, account and preferences are remembered. Participation is never
+// saved, so the app always opens Paused.
+interface Saved { consent: boolean; account: Account | null; preferences: Preferences }
+
+function load(): Saved {
+  const fallback: Saved = { consent: false, account: null, preferences: DEFAULT_PREFERENCES };
+  try {
+    const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "null");
+    if (!parsed || typeof parsed !== "object") return fallback;
+    return { consent: parsed.consent === true, account: parsed.account ?? null,
+      preferences: { ...DEFAULT_PREFERENCES, ...(parsed.preferences ?? {}) } };
+>>>>>>> d5fa911 (Add GreenTokens Provider Windows desktop app (demo))
   } catch { return fallback; }
 }
 function save(s: Saved) {
@@ -39,6 +53,7 @@ interface ProviderContext {
   consent: boolean;
   setConsent(v: boolean): void;
   account: Account | null;
+<<<<<<< HEAD
   authenticate(mode: "login" | "signup", username: string, password: string): Promise<boolean>;
   signOut(): Promise<void>;
   authError: string | null;
@@ -49,34 +64,54 @@ interface ProviderContext {
   controlError: string | null;
   /** consented: pass true when the user has just agreed in the first-connect prompt. */
   start(opts?: { consented?: boolean }): Promise<void>;
+=======
+  signingIn: boolean;
+  signInError: string | null;
+  signIn(): Promise<void>;
+  signOut(): Promise<void>;
+  participation: Participation;
+  controlError: string | null;
+  start(): Promise<void>;
+>>>>>>> d5fa911 (Add GreenTokens Provider Windows desktop app (demo))
   pause(): Promise<void>;
   preferences: Preferences;
   savePreferences(p: Preferences): Promise<{ enforced: boolean } | null>;
   hardware: HardwareResult | null;
   refreshHardware(): void;
   activity: Activity | null;
+<<<<<<< HEAD
   /** True while the one-time setup runs (first Connect, or Repair setup). */
   preparing: boolean;
   setupDone: boolean;
   setupNote: string;
   repairSetup(): Promise<void>;
+=======
+>>>>>>> d5fa911 (Add GreenTokens Provider Windows desktop app (demo))
 }
 
 const Ctx = createContext<ProviderContext | null>(null);
 
 export function ProviderProvider({ service, detectHardware, children }: { service: ProviderService; detectHardware: HardwareDetector; children: ReactNode }) {
   const [saved, setSaved] = useState<Saved>(load);
+<<<<<<< HEAD
   const [account, setAccount] = useState<Account | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
   const [authenticating, setAuthenticating] = useState(false);
+=======
+  const [signingIn, setSigningIn] = useState(false);
+  const [signInError, setSignInError] = useState<string | null>(null);
+>>>>>>> d5fa911 (Add GreenTokens Provider Windows desktop app (demo))
   const [participation, setParticipationState] = useState<Participation>("paused");
   const participationRef = useRef<Participation>("paused");
   const [controlError, setControlError] = useState<string | null>(null);
   const [hardware, setHardware] = useState<HardwareResult | null>(null);
   const [activity, setActivity] = useState<Activity | null>(null);
+<<<<<<< HEAD
   const [preparing, setPreparing] = useState(false);
   // Also remove any credentials saved by older invite-based versions on first load.
   useEffect(() => { save(saved); }, [saved]);
+=======
+>>>>>>> d5fa911 (Add GreenTokens Provider Windows desktop app (demo))
 
   // Read through a function so TypeScript doesn't keep narrowing across awaits.
   const current = () => participationRef.current;
@@ -89,19 +124,31 @@ export function ProviderProvider({ service, detectHardware, children }: { servic
   }, [detectHardware]);
   useEffect(refreshHardware, [refreshHardware]);
 
+<<<<<<< HEAD
   // Poll activity for the lifetime of the app.
   useEffect(() => {
+=======
+  // Poll activity while signed in.
+  const signedIn = saved.account !== null;
+  useEffect(() => {
+    if (!signedIn) { setActivity(null); return; }
+>>>>>>> d5fa911 (Add GreenTokens Provider Windows desktop app (demo))
     let cancelled = false;
     const tick = () => service.getActivity().then((a) => { if (!cancelled) setActivity(a); }, () => undefined);
     tick();
     const id = setInterval(tick, 1000);
     return () => { cancelled = true; clearInterval(id); };
+<<<<<<< HEAD
   }, [service]);
+=======
+  }, [service, signedIn]);
+>>>>>>> d5fa911 (Add GreenTokens Provider Windows desktop app (demo))
 
   const value = useMemo<ProviderContext>(() => ({
     service,
     consent: saved.consent,
     setConsent: (consent) => update({ consent }),
+<<<<<<< HEAD
     account,
     authError,
     authenticating,
@@ -164,6 +211,33 @@ export function ProviderProvider({ service, detectHardware, children }: { servic
         // If the user pressed Pause while we were starting, stay paused.
         if (current() === "starting") setParticipation("active");
         else await service.pause();
+=======
+    account: saved.account,
+    signingIn,
+    signInError,
+    async signIn() {
+      if (!saved.consent) return;
+      setSigningIn(true); setSignInError(null);
+      try { update({ account: await service.signIn() }); }
+      catch (e) { setSignInError(friendly(e, "We couldn't sign you in. Please try again.")); }
+      finally { setSigningIn(false); }
+    },
+    async signOut() {
+      setParticipation("paused");
+      try { await service.pause(); await service.signOut(); } catch { /* still sign out locally */ }
+      setControlError(null);
+      update({ account: null, consent: false, preferences: DEFAULT_PREFERENCES });
+    },
+    participation,
+    controlError,
+    async start() {
+      if (current() !== "paused") return;
+      setControlError(null); setParticipation("starting");
+      try {
+        await service.start(saved.preferences);
+        // If the user pressed Pause while we were starting, stay paused.
+        if (current() === "starting") setParticipation("active");
+>>>>>>> d5fa911 (Add GreenTokens Provider Windows desktop app (demo))
       } catch (e) {
         if (current() === "starting") setParticipation("paused");
         setControlError(friendly(e, "Computing could not start. Your computer stays paused."));
@@ -190,6 +264,7 @@ export function ProviderProvider({ service, detectHardware, children }: { servic
     hardware,
     refreshHardware,
     activity,
+<<<<<<< HEAD
     preparing,
     setupDone: saved.setupDone,
     setupNote: saved.setupNote,
@@ -201,16 +276,22 @@ export function ProviderProvider({ service, detectHardware, children }: { servic
       finally { setPreparing(false); }
     },
   }), [service, saved, participation, controlError, hardware, refreshHardware, activity, update, preparing, account, authError, authenticating]);
+=======
+  }), [service, saved, signingIn, signInError, participation, controlError, hardware, refreshHardware, activity, update]);
+>>>>>>> d5fa911 (Add GreenTokens Provider Windows desktop app (demo))
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 
+<<<<<<< HEAD
 /** Processor cores to offer: the chosen share of this computer's threads, at least 1. */
 export function cpusFor(cpuPercent: number, hardware: HardwareResult | null) {
   const threads = hardware?.status === "ok" ? hardware.hardware.threads : 2;
   return Math.max(1, Math.round((threads * cpuPercent) / 100));
 }
 
+=======
+>>>>>>> d5fa911 (Add GreenTokens Provider Windows desktop app (demo))
 export function useProvider() {
   const ctx = useContext(Ctx);
   if (!ctx) throw new Error("useProvider must be used inside ProviderProvider");

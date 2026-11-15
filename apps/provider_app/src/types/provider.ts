@@ -21,6 +21,7 @@ export type HardwareResult =
   | { status: "unavailable"; reason: "browser" | "failed"; message: string };
 
 export type Participation = "paused" | "starting" | "active" | "pausing";
+<<<<<<< HEAD
 export type Connection = "demo" | "offline" | "online";
 
 export interface Credentials {
@@ -39,6 +40,9 @@ export interface PrepareResult {
 
 /** What the provider worker is doing right now (installed app). */
 export type WorkerState = "stopped" | "starting" | "online" | "working" | "reconnecting" | "error";
+=======
+export type Connection = "demo" | "offline";
+>>>>>>> d5fa911 (Add GreenTokens Provider Windows desktop app (demo))
 
 export interface Account {
   displayName: string;
@@ -63,6 +67,7 @@ export interface ActivityItem {
   status: JobStatus;
 }
 
+<<<<<<< HEAD
 /** Real, current readings from this computer (installed app only). */
 export interface LiveUsage {
   /** Whole-computer processor use, 0-100. */
@@ -78,6 +83,8 @@ export interface LiveUsage {
   warmingUp: boolean;
 }
 
+=======
+>>>>>>> d5fa911 (Add GreenTokens Provider Windows desktop app (demo))
 export interface Activity {
   connection: Connection;
   currentJob: ActivityItem | null;
@@ -86,11 +93,14 @@ export interface Activity {
   totalSeconds: number;
   cpuPercent: number;
   gpuPercent: number | null;
+<<<<<<< HEAD
   /** Live mode: what the worker is doing, and the last problem if any. */
   workerState?: WorkerState;
   workerError?: string | null;
   /** Live mode: progress of the current job, when the workload reports it. */
   jobProgress?: { step: number; total: number } | null;
+=======
+>>>>>>> d5fa911 (Add GreenTokens Provider Windows desktop app (demo))
 }
 
 export const DEFAULT_PREFERENCES: Preferences = {
