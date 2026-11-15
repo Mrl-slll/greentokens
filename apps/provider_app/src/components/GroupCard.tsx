@@ -31,6 +31,7 @@ export function GroupCard() {
       {!group && !preparing && !joining && (
         <>
           <p className="mt-1 text-sm text-slate-600">Connect computers on the same home or office network. One computer leads; the others join with its code.</p>
+          <p className="mt-1 text-xs text-slate-500">Groups work best when every computer is the same kind (all Windows or all Mac). Mixing them is untested.</p>
           <div className="mt-3 grid gap-2 sm:grid-cols-2">
             <Button variant="primary" onClick={() => void createGroup()}>Start a group</Button>
             <Button onClick={() => setJoining(true)}>Join a group</Button>

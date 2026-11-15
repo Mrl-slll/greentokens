@@ -4,26 +4,29 @@ Works like a VPN app: **install it, join a group, press the big power button.**
 
 **Status: preview.** Groups are real: one computer clicks **Start a group** and shares a code; others click **Join a group** and paste it. The power button then really starts or joins a private [Ray](https://www.ray.io/) cluster on the local network (`ray start` / `ray stop`). GreenTokens jobs aren't sent to groups yet; the group is ready for your own Ray workloads (e.g. multi-PC training). In the browser preview and in tests, a clearly labeled mock is used instead.
 
-## Download (Windows 10/11)
+## Download
 
-**[Download GreenTokens-Provider-Setup.exe](https://github.com/Mrl-slll/greentokens/releases/download/provider-v0.1.0/GreenTokens-Provider-Setup.exe)**
+- **[Windows 10/11: GreenTokens-Provider-Setup.exe](https://github.com/Mrl-slll/greentokens/releases/download/provider-v0.1.0/GreenTokens-Provider-Setup.exe)**
+- **[Mac (macOS 11+, Apple silicon and Intel): GreenTokens-Provider-macOS.dmg](https://github.com/Mrl-slll/greentokens/releases/download/provider-v0.1.0/GreenTokens-Provider-macOS.dmg)**
 
-1. Install on each computer. If Windows says *"Windows protected your PC"*, click **More info → Run anyway**.
-2. Computer 1: **Start a group** → **Copy** the code. Other computers: **Join a group** → paste it.
-3. Press the power button on each. The first time, the app downloads a private Python + Ray (about 150 MB) and Windows asks once to allow it on your **Private** network.
+**Windows:** run the installer. If it says *"Windows protected your PC"*, click **More info → Run anyway**.
+**Mac:** open the `.dmg`, drag the app to **Applications**, then **right-click → Open → Open** the first time (the app isn't notarized yet). If macOS still refuses, **System Settings → Privacy & Security → Open Anyway**. Allow local-network access if asked.
 
-It never connects by itself, always opens disconnected, closing the app disconnects, and it doesn't start with Windows. To remove it: **Settings → Apps → Installed apps → GreenTokens Provider → Uninstall**.
+Then on every computer: **Computer 1:** **Start a group** → **Copy** the code. **Others:** **Join a group** → paste it. Press the power button on each. The first time, the app downloads a private Python + Ray (about 150 MB), and Windows asks once to allow it on your **Private** network.
+
+It never connects by itself, always opens disconnected, closing the app disconnects, and it doesn't start with the computer. Remove it: Windows **Settings → Apps → Installed apps → GreenTokens Provider → Uninstall**; Mac: drag it to the Trash.
 
 ## How groups work
 
 | Piece | Detail |
 |---|---|
 | Group code | `GT1-<leader LAN IP>-<32-hex token>`; the token is Ray's access token (`RAY_AUTH_MODE=token`). Only private LAN addresses are accepted. |
-| Runtime | First use: bundled `uv` (pinned, checksum-verified in CI) creates `%LOCALAPPDATA%i.greentokens.provideruntime` with Python 3.12 and `ray[default]==2.60.0`, so every computer matches. |
+| Runtime | First use: bundled `uv` (pinned, checksum-verified in CI) creates `%LOCALAPPDATA%i.greentokens.provider
+untime` with Python 3.12 and `ray[default]==2.60.0`, so every computer matches. |
 | Agent | `src-tauri/agent/gt_agent.py`: fixed actions `check`, `firewall`, `host`, `join`, `stop`, `status`; validated arguments; one JSON line out. The Rust command `agent` only accepts those actions. |
-| Ports / firewall | Fixed ports TCP 6379-6386 and 10002-10101; one elevated rule `GreenTokens Provider (Ray)` on the **Private** profile only. Dashboard stays on 127.0.0.1. |
+| Ports / firewall | Fixed ports TCP 6379-6386 and 10002-10101; Windows: one elevated rule `GreenTokens Provider (Ray)` on the **Private** profile only. Mac: no rule is created; macOS may ask to allow incoming connections or local-network access. Dashboard stays on 127.0.0.1. |
 | Limits | Processor share → `ray start --num-cpus`. Memory isn't enforced (Ray 2.60's CLI has no memory flag). |
-| Caveats | Ray multi-node on Windows is **experimental** (`RAY_ENABLE_WINDOWS_OR_OSX_CLUSTER=1`). The leader can run code on members: only join trusted groups. |
+| Caveats | Mac builds are universal (Apple silicon + Intel), ad-hoc signed, **not notarized**. Ray multi-node on Windows and macOS is **experimental**; mixing Windows with Mac in one group is untested (`RAY_ENABLE_WINDOWS_OR_OSX_CLUSTER=1`). The leader can run code on members: only join trusted groups. |
 
 ## How it's built
 

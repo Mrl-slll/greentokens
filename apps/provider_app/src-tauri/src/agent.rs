@@ -12,6 +12,7 @@ use tauri::{AppHandle, Manager};
 const PYTHON_VERSION: &str = "3.12";
 const RAY_REQUIREMENT: &str = "ray[default]==2.60.0";
 const RUNTIME_MARKER: &str = "greentokens-runtime-ray-2.60.0";
+const UV_RESOURCE: &str = if cfg!(windows) { "bin/uv.exe" } else { "bin/uv" };
 const ACTIONS: &[&str] = &["check", "firewall", "host", "join", "stop", "status"];
 
 static AGENT_LOCK: Mutex<()> = Mutex::new(());
@@ -29,14 +30,14 @@ fn missing(_: tauri::Error) -> String {
 }
 
 fn paths(app: &AppHandle) -> Result<Paths, String> {
-    let uv = app.path().resolve("bin/uv.exe", BaseDirectory::Resource).map_err(missing)?;
+    let uv = app.path().resolve(UV_RESOURCE, BaseDirectory::Resource).map_err(missing)?;
     let agent = app.path().resolve("agent/gt_agent.py", BaseDirectory::Resource).map_err(missing)?;
     let data = app
         .path()
         .app_local_data_dir()
         .map_err(|_| "Can't find this app's data folder.".to_string())?;
     let env = data.join("runtime");
-    let python = env.join("Scripts").join("python.exe");
+    let python = if cfg!(windows) { env.join("Scripts").join("python.exe") } else { env.join("bin").join("python3") };
     Ok(Paths { uv, agent, data, env, python })
 }
 

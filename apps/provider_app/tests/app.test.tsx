@@ -115,7 +115,7 @@ it("reset disconnects, forgets the group and consent, and asks again next time",
   fireEvent.click(screen.getByRole("button", { name: "Yes, reset" }));
   fireEvent.click(screen.getByRole("button", { name: "Home" }));
   expect(await screen.findByRole("heading", { name: "Not connected" })).toBeTruthy();
-  expect(screen.getByText(/Start or join a group below first/)).toBeTruthy(); // group forgotten
+  expect(await screen.findByText(/Start or join a group below first/)).toBeTruthy(); // group forgotten (reset finishes asynchronously)
   await startGroup();
   connect();
   expect(screen.getByRole("dialog", { name: "Before you connect" })).toBeTruthy(); // consent asked again

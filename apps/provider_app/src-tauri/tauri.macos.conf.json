@@ -1,0 +1,16 @@
+{
+  "bundle": {
+    "targets": [
+      "app",
+      "dmg"
+    ],
+    "resources": {
+      "agent/gt_agent.py": "agent/gt_agent.py",
+      "bin/uv": "bin/uv"
+    },
+    "macOS": {
+      "minimumSystemVersion": "11.0",
+      "signingIdentity": "-"
+    }
+  }
+}

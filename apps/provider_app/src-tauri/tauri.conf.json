@@ -27,7 +27,6 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
     "publisher": "GreenTokens",
     "shortDescription": "Share your computer's spare capacity with GreenTokens",
     "longDescription": "GreenTokens Provider lets computer owners choose when and how much of their computer to share. This version is a demo: it does not run jobs.",
@@ -38,10 +37,6 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "resources": {
-      "agent/gt_agent.py": "agent/gt_agent.py",
-      "bin/uv.exe": "bin/uv.exe"
-    },
     "windows": {
       "nsis": {
         "installMode": "currentUser"

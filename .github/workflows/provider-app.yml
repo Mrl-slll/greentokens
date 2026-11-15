@@ -1,4 +1,4 @@
-name: Provider app (Windows installer)
+name: Provider app (Windows + Mac installers)
 
 on:
   push:
@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write # only used to publish the installer to a GitHub release
+  contents: write # only used by the release job to publish the installers
 
 concurrency:
   group: provider-app-${{ github.ref }}
@@ -16,9 +16,10 @@ concurrency:
 
 env:
   RELEASE_TAG: provider-v0.1.0
+  UV_VERSION: "0.13.8"
 
 jobs:
-  build:
+  windows:
     runs-on: windows-latest
     defaults:
       run:
@@ -47,7 +48,6 @@ jobs:
       - name: Bundle uv (pinned, checksum-verified)
         shell: pwsh
         env:
-          UV_VERSION: "0.13.8"
           UV_SHA256: "529e78a9cec6cd7e3e014f7ecd8bda0c113969d4ed0f2efeedb85c30943325b8"
         run: |
           $zip = Join-Path $env:RUNNER_TEMP "uv.zip"
@@ -71,7 +71,6 @@ jobs:
             tail -n 25 build.log | while IFS= read -r line; do echo "::error::tail: ${line:0:400}"; done
           fi
           exit "$code"
-
       - name: Collect installer
         shell: bash
         run: |
@@ -79,36 +78,127 @@ jobs:
           exe=$(ls src-tauri/target/release/bundle/nsis/*.exe | head -1)
           cp "$exe" out/GreenTokens-Provider-Setup.exe
           ls -l out
-
       - uses: actions/upload-artifact@v4
         with:
-          name: GreenTokens-Provider-Setup
+          name: provider-windows
           path: apps/provider_app/out/GreenTokens-Provider-Setup.exe
 
+  macos:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: apps/provider_app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/provider_app/package-lock.json
+
+      # One universal app runs on both Apple silicon and Intel Macs.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/provider_app/src-tauri -> target
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - name: Agent unit tests
+        working-directory: apps/provider_app/src-tauri/agent
+        run: python3 -m unittest -v test_gt_agent
+      - name: Bundle uv (pinned, checksum-verified, universal)
+        env:
+          UV_SHA256_ARM64: "6b71028a6b904f2ae3340ef52e595512de807d06c0a20eaef2f692581b246558"
+          UV_SHA256_X64: "a04c2ffeac28b2003a2c13caf538ab425fcd7def3e4a41571f4a8fb370a66af3"
+        run: |
+          set -euo pipefail
+          for arch in aarch64 x86_64; do
+            curl -fsSL -o "$RUNNER_TEMP/uv-$arch.tar.gz" "https://github.com/astral-sh/uv/releases/download/$UV_VERSION/uv-$arch-apple-darwin.tar.gz"
+            mkdir -p "$RUNNER_TEMP/uv-$arch" && tar -xzf "$RUNNER_TEMP/uv-$arch.tar.gz" -C "$RUNNER_TEMP/uv-$arch" --strip-components=1
+          done
+          echo "$UV_SHA256_ARM64  $RUNNER_TEMP/uv-aarch64.tar.gz" | shasum -a 256 -c -
+          echo "$UV_SHA256_X64  $RUNNER_TEMP/uv-x86_64.tar.gz" | shasum -a 256 -c -
+          mkdir -p src-tauri/bin
+          lipo -create -output src-tauri/bin/uv "$RUNNER_TEMP/uv-aarch64/uv" "$RUNNER_TEMP/uv-x86_64/uv"
+          chmod +x src-tauri/bin/uv
+          # lipo drops signatures, and Apple silicon refuses to run unsigned binaries.
+          codesign --force -s - src-tauri/bin/uv
+          src-tauri/bin/uv --version
+          lipo -info src-tauri/bin/uv
+      - name: Build app and disk image
+        run: |
+          set +e
+          npm run tauri build -- --target universal-apple-darwin 2>&1 | tee build.log
+          code=${PIPESTATUS[0]}
+          if [ "$code" -ne 0 ]; then
+            grep -n -E "^(error|warning: unused)|-->|Error|failed" build.log | head -30 | while IFS= read -r line; do echo "::error::${line:0:400}"; done
+            tail -n 25 build.log | while IFS= read -r line; do echo "::error::tail: ${line:0:400}"; done
+          fi
+          exit "$code"
+      - name: Collect disk image
+        run: |
+          mkdir -p out
+          dmg=$(ls src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg | head -1)
+          cp "$dmg" out/GreenTokens-Provider-macOS.dmg
+          ls -l out
+          # Confirm the bundled tools survived packaging.
+          hdiutil attach -nobrowse -readonly -mountpoint "$RUNNER_TEMP/dmg" out/GreenTokens-Provider-macOS.dmg >/dev/null
+          app=$(ls -d "$RUNNER_TEMP"/dmg/*.app | head -1)
+          ls -l "$app/Contents/Resources/bin" "$app/Contents/Resources/agent" || true
+          codesign -dv "$app" 2>&1 | head -5 || true
+          hdiutil detach "$RUNNER_TEMP/dmg" >/dev/null
+      - uses: actions/upload-artifact@v4
+        with:
+          name: provider-macos
+          path: apps/provider_app/out/GreenTokens-Provider-macOS.dmg
+
+  release:
+    needs: [windows, macos]
+    if: github.ref == 'refs/heads/provider-app' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
       - name: Publish public download
-        if: github.ref == 'refs/heads/provider-app' || github.ref == 'refs/heads/main'
-        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
         run: |
+          ls -l out
           cat > notes.md <<EOF
-          # ⬇️ [Download for Windows](https://github.com/${GH_REPO}/releases/download/${RELEASE_TAG}/GreenTokens-Provider-Setup.exe)
+          # Download
+          - ⬇️ **[Download for Windows](https://github.com/${GH_REPO}/releases/download/${RELEASE_TAG}/GreenTokens-Provider-Setup.exe)** (Windows 10 or 11)
+          - ⬇️ **[Download for Mac](https://github.com/${GH_REPO}/releases/download/${RELEASE_TAG}/GreenTokens-Provider-macOS.dmg)** (macOS 11 or newer, Apple silicon and Intel)
 
-          **GreenTokens Provider**: connect computers on the same home or office network into one computing group, with one button. Windows 10 or 11.
+          **GreenTokens Provider**: connect computers on the same home or office network into one computing group, with one button.
 
-          1. **Install** on each computer. If Windows says *"Windows protected your PC"*, click **More info → Run anyway**.
-          2. **Computer 1:** open the app → **Start a group** → **Copy** the code. **Computer 2:** **Join a group** → paste the code.
-          3. **Press the power button on both.** The first time, setup downloads about 150 MB and Windows asks once to allow the app on your private network.
+          ### Windows
+          1. Install on each computer. If Windows says *"Windows protected your PC"*, click **More info → Run anyway**.
+          2. Allow the app on your **Private** network when Windows asks (once).
 
-          > **Preview.** Groups are real Ray clusters on your local network, protected by the code's access token. Only join groups run by people you trust. GreenTokens jobs aren't sent to groups yet. Windows multi-computer Ray is experimental. Your network must be set to **Private** in Windows.
+          ### Mac
+          1. Open the downloaded **.dmg** and drag **GreenTokens Provider** into **Applications**.
+          2. The first time, **right-click the app → Open → Open** (the app isn't notarized yet, so a normal double-click is blocked). If macOS still refuses, open **System Settings → Privacy & Security**, scroll down and click **Open Anyway**.
+          3. If macOS asks to allow the app to find devices on your local network, choose **Allow**.
 
-          To remove it: Windows **Settings → Apps → Installed apps → GreenTokens Provider → Uninstall**.
+          ### Then, on any computer
+          1. **Computer 1:** **Start a group** → **Copy** the code. **Other computers:** **Join a group** → paste it.
+          2. **Press the power button on each.** The first time, setup downloads about 150 MB.
+
+          > **Preview.** Groups are real Ray clusters on your local network, protected by the code's access token. Only join groups run by people you trust. GreenTokens jobs aren't sent to groups yet. Multi-computer Ray on Windows and Mac is experimental, and mixing Windows with Mac in one group is untested.
 
           <sub>Built from ${GITHUB_SHA}.</sub>
           EOF
           gh release delete "$RELEASE_TAG" --yes --cleanup-tag || true
-          gh release create "$RELEASE_TAG" out/GreenTokens-Provider-Setup.exe \
+          gh release create "$RELEASE_TAG" out/GreenTokens-Provider-Setup.exe out/GreenTokens-Provider-macOS.dmg \
             --prerelease --target "$GITHUB_SHA" \
-            --title "GreenTokens Provider for Windows (preview)" \
+            --title "GreenTokens Provider for Windows and Mac (preview)" \
             --notes-file notes.md

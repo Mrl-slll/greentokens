@@ -3,6 +3,8 @@ import { useProvider } from "../hooks/useProvider";
 import { Button, Card, DemoBadge, Toggle } from "../components/ui";
 import type { MockProviderService } from "../services/mockProviderService";
 
+const isMac = typeof navigator !== "undefined" && /mac/i.test(navigator.platform);
+
 export function SettingsScreen({ onOpenLimits }: { onOpenLimits(): void }) {
   const { account, preferences, savePreferences, reset, hardware, service } = useProvider();
   const mock = service.mode === "mock" ? (service as MockProviderService) : null;
@@ -44,7 +46,7 @@ export function SettingsScreen({ onOpenLimits }: { onOpenLimits(): void }) {
 
       <Card title="Preferences">
         <div className="space-y-5">
-          <Toggle id="autostart" label="Open when I sign in to Windows" checked={false} disabled onChange={() => undefined}
+          <Toggle id="autostart" label={isMac ? "Open when I log in to my Mac" : "Open when I sign in to Windows"} checked={false} disabled onChange={() => undefined}
             description="Off. Coming in a later version. GreenTokens never starts sharing on its own." />
           <Toggle id="notifications" label="Notifications" checked={preferences.notifications}
             description="Saved on this computer. The demo doesn't send notifications yet."
@@ -61,11 +63,19 @@ export function SettingsScreen({ onOpenLimits }: { onOpenLimits(): void }) {
           <dt className="text-slate-500">Version</dt><dd>{__APP_VERSION__} (demo)</dd>
         </dl>
         <h3 className="mt-4 font-medium">Uninstalling</h3>
-        <ol className="mt-1 list-decimal space-y-1 pl-5 text-sm text-slate-700">
-          <li>Open the Windows <strong>Start</strong> menu and choose <strong>Settings</strong>.</li>
-          <li>Go to <strong>Apps</strong> → <strong>Installed apps</strong>.</li>
-          <li>Find <strong>GreenTokens Provider</strong>, select <strong>⋯</strong>, then <strong>Uninstall</strong>.</li>
-        </ol>
+        {isMac ? (
+          <ol className="mt-1 list-decimal space-y-1 pl-5 text-sm text-slate-700">
+            <li>Quit GreenTokens Provider.</li>
+            <li>Open <strong>Finder → Applications</strong>.</li>
+            <li>Drag <strong>GreenTokens Provider</strong> to the Trash.</li>
+          </ol>
+        ) : (
+          <ol className="mt-1 list-decimal space-y-1 pl-5 text-sm text-slate-700">
+            <li>Open the Windows <strong>Start</strong> menu and choose <strong>Settings</strong>.</li>
+            <li>Go to <strong>Apps</strong> → <strong>Installed apps</strong>.</li>
+            <li>Find <strong>GreenTokens Provider</strong>, select <strong>⋯</strong>, then <strong>Uninstall</strong>.</li>
+          </ol>
+        )}
       </Card>
 
       <Card title="Reset">
