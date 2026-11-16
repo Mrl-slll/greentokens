@@ -9,13 +9,21 @@ from pydantic import ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
-from core.api.schemas import Numbers, Submission
+from core.api.schemas import Numbers, TrainingData, Submission, input_model
 from core.artifacts.storage import ArtifactError, Storage
 from core.config import Settings
 from core.database.models import Artifact, Attempt, Job, Organization, Usage, User, Worker, now
 from core.database.session import database
 
 TERMINAL = {"SUCCEEDED", "FAILED", "CANCELLED"}
+
+
+PROXY_HEADERS = ("cf-connecting-ip", "cf-ray", "x-forwarded-for", "forwarded")
+
+
+def proxied(request):
+    """True when the request came through a tunnel/proxy (which reaches us from loopback)."""
+    return any(h in request.headers for h in PROXY_HEADERS)
 
 
 def create_app(settings=None, sessions=None, storage=None):
@@ -29,6 +37,8 @@ def create_app(settings=None, sessions=None, storage=None):
     async def local_only(request, call_next):
         if not request.client or request.client.host not in {"127.0.0.1", "::1", "testclient"}:
             return JSONResponse({"detail": "Local development access only"}, status_code=403)
+        if proxied(request) and not (request.url.path == "/health" or request.url.path.startswith("/v1/")):
+            return JSONResponse({"detail": "Not found"}, status_code=404)
         return await call_next(request)
 
     @app.exception_handler(RequestValidationError)
@@ -43,9 +53,19 @@ def create_app(settings=None, sessions=None, storage=None):
         return JSONResponse({"detail": code}, status_code=status)
 
     def identity(request: Request):
-        # Deliberate development stub, NOT authentication. Configuration blocks production.
-        name = request.headers.get("X-Dev-User", "")
+        auth = request.headers.get("Authorization", "")
         with sessions() as db:
+            if auth.startswith("Bearer "):
+                digest = hashlib.sha256(auth[7:].encode()).hexdigest()
+                user = db.get(User, settings.api_keys.get(digest, ""))
+                if user is None:
+                    raise HTTPException(401, "Invalid API key")
+                return user
+            if proxied(request):
+                # Tunneled requests arrive from loopback; never let them use the dev stub.
+                raise HTTPException(401, "API key required")
+            # Deliberate development stub, NOT authentication. Configuration blocks production.
+            name = request.headers.get("X-Dev-User", "")
             user = db.get(User, name)
             if user is None:
                 raise HTTPException(401, "Use a configured local X-Dev-User identity")
@@ -71,9 +91,12 @@ def create_app(settings=None, sessions=None, storage=None):
             if len(data) > settings.max_bytes:
                 raise HTTPException(413, "Input exceeds size limit")
         try:
-            values = Numbers.model_validate_json(bytes(data))
+            try:
+                values = Numbers.model_validate_json(bytes(data))
+            except ValidationError:
+                values = TrainingData.model_validate_json(bytes(data))
         except ValidationError:
-            raise HTTPException(422, "Expected a bounded JSON values array") from None
+            raise HTTPException(422, "Expected bounded sum values or paired training x/y arrays") from None
         payload = values.model_dump_json().encode()
         artifact = storage.put(user.organization_id, "input", payload)
         with sessions.begin() as db:
@@ -104,7 +127,10 @@ def create_app(settings=None, sessions=None, storage=None):
                 artifact = owned(db, Artifact, body.input_artifact_id, user)
                 if artifact.kind != "input":
                     raise HTTPException(422, "Expected an input artifact")
-                Numbers.model_validate_json(storage.read(artifact))
+                try:
+                    input_model(body.template_id).model_validate_json(storage.read(artifact))
+                except ValidationError:
+                    raise HTTPException(422, "Input does not match selected pipeline") from None
             workers = db.scalars(select(Worker).where(Worker.trusted.is_(True),
                 Worker.paused.is_(False), Worker.last_seen_at > now() - timedelta(seconds=60),
                 Worker.workload_class == body.requirements.execution_class)).all()
@@ -131,6 +157,8 @@ def create_app(settings=None, sessions=None, storage=None):
             attempts = db.scalars(select(Attempt).where(Attempt.job_id == job.id).order_by(Attempt.attempt_number)).all()
             artifacts = db.scalars(select(Artifact).where(Artifact.job_id == job.id)).all()
             return {"job_id": job.id, "status": job.status, "template_id": job.template_id,
+                    "requirements": job.requirements, "input_artifact_id": job.input_artifact_id,
+                    "input_source": "artifact" if job.input_artifact_id else "inline",
                     "created_at": job.created_at, "updated_at": job.updated_at,
                     "cancel_requested": job.cancel_requested, "error_code": job.error_code,
                     "attempt_count": len(attempts),

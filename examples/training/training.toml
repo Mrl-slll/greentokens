@@ -1,0 +1,13 @@
+template_id = "linear_regression_v1"
+# Change for each new run; keep unchanged for retries of the same input.
+idempotency_key = "training-example-001"
+
+[data]
+file = "dataset.json"
+
+[requirements]
+cpu_cores = 1
+ram_gb = 0.125
+gpus = 0
+execution_class = "trusted_cpu"
+max_runtime_seconds = 60

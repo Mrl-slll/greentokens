@@ -16,7 +16,7 @@ from core.artifacts.storage import ArtifactError, Storage
 from core.config import Settings
 from core.database.models import Artifact, Attempt, Base, Job, Usage, Worker, now
 from core.jobs.dispatcher import Dispatcher
-from scripts.local_stack import seed
+from scripts.local_stack import heartbeat, seed
 
 
 class MemoryStorage:
@@ -88,6 +88,55 @@ class CoreTests(unittest.TestCase):
         with self.sessions() as db:
             attempt = db.scalar(select(Attempt).where(Attempt.job_id == job_id))
         return job_id, attempt
+
+    def keyed_client(self):
+        digest = hashlib.sha256(b"gt_testkey").hexdigest()
+        settings = SimpleNamespace(max_bytes=65536, api_keys={digest: "alice"})
+        return TestClient(create_app(settings, self.sessions, self.storage))
+
+    def test_api_key_auth_and_tunnel_rules(self):
+        body = {"template_id": "sum_numbers_v1", "parameters": {"values": [1]}, "idempotency_key": "k1"}
+        with self.keyed_client() as c:
+            good = {"Authorization": "Bearer gt_testkey"}
+            self.assertEqual(c.post("/v1/jobs", json=body, headers=good).status_code, 202)
+            self.assertEqual(c.get("/v1/usage", headers={"Authorization": "Bearer wrong"}).status_code, 401)
+            # Tunneled requests (proxy headers) cannot use the dev identity stub...
+            tunneled = {"X-Dev-User": "alice", "Cf-Connecting-Ip": "203.0.113.5"}
+            self.assertEqual(c.get("/v1/usage", headers=tunneled).status_code, 401)
+            # ...but a valid key still works through the tunnel, and docs are hidden.
+            self.assertEqual(c.get("/v1/usage", headers={**good, "Cf-Ray": "x"}).status_code, 200)
+            self.assertEqual(c.get("/docs", headers={"Cf-Ray": "x"}).status_code, 404)
+            self.assertEqual(c.get("/openapi.json", headers={"Cf-Ray": "x"}).status_code, 404)
+            # A key acts as its own user: bob's job is invisible to alice's key.
+            bob_job = self.client.post("/v1/jobs", json={**body, "idempotency_key": "b"}, headers=self.bob).json()["job_id"]
+            self.assertEqual(c.get(f"/v1/jobs/{bob_job}", headers=good).status_code, 404)
+            # Local dev stub still works without proxy headers.
+            self.assertEqual(c.get("/v1/usage", headers=self.alice).status_code, 200)
+
+    def test_heartbeat_registers_every_live_node(self):
+        class Nodes:
+            def nodes(self):
+                return [{"Alive": True, "NodeID": "n1", "NodeManagerHostname": "leader", "Resources": {"CPU": 4.0, "memory": 4 * 1024**3}},
+                        {"Alive": True, "NodeID": "n2", "NodeManagerHostname": "mac", "Resources": {"CPU": 8.0, "memory": 8 * 1024**3}},
+                        {"Alive": False, "NodeID": "n3", "NodeManagerHostname": "gone", "Resources": {"CPU": 2.0}}]
+        heartbeat(self.sessions, Nodes())
+        with self.sessions() as db:
+            rows = {w.id: w for w in db.scalars(select(Worker))}
+        self.assertEqual((rows["n1"].hostname, rows["n1"].cpu_cores), ("leader", 4))
+        self.assertEqual((rows["n2"].hostname, rows["n2"].cpu_cores, round(rows["n2"].ram_gb)), ("mac", 8, 8))
+        self.assertNotIn("n3", rows)
+
+    def test_ray_job_gets_settings_explicitly(self):
+        from core.ray_runtime import client as ray_client
+        sent = {}
+        class FakeJobs:
+            def __init__(self, endpoint): pass
+            def submit_job(self, **kwargs): sent.update(kwargs); return "id"
+        with patch.object(ray_client, "JobSubmissionClient", FakeJobs),              patch.dict(os.environ, {"GT_MODE": "development", "RAY_AUTH_TOKEN": "t", "UNRELATED_SECRET": "x"}):
+            ray_client.RayJobs("http://127.0.0.1:8265").submit(SimpleNamespace(id="a", ray_submission_id="gt-a"))
+        env = sent["runtime_env"]["env_vars"]
+        self.assertEqual(env["GT_MODE"], "development")
+        self.assertNotIn("UNRELATED_SECRET", env)
 
     def test_idempotency_and_body_ownership(self):
         first = self.submit()
@@ -222,6 +271,38 @@ class CoreTests(unittest.TestCase):
         with patch.dict(os.environ, {"GT_MODE": "production"}):
             with self.assertRaises(RuntimeError):
                 Settings.from_env()
+
+    def test_training_contract_and_validation(self):
+        data = {"x": [0, 1, 2, 3], "y": [1, 3, 5, 7]}
+        response = self.submit(template_id="linear_regression_v1", parameters=data)
+        self.assertEqual(response.status_code, 202)
+        detail = self.client.get(f"/v1/jobs/{response.json()['job_id']}", headers=self.alice).json()
+        self.assertEqual(detail["input_source"], "inline")
+        self.assertEqual(detail["requirements"]["gpus"], 0)
+        for bad in ({"x": [1, 1], "y": [2, 3]}, {"x": [1, 2], "y": [3]},
+                    {"x": [True, 2], "y": [3, 4]}, {"x": [1, 2e6], "y": [3, 4]},
+                    {"values": [1, 2]}):
+            self.assertEqual(self.submit(template_id="linear_regression_v1", parameters=bad).status_code, 422)
+        self.assertEqual(self.submit(parameters=data).status_code, 422)
+
+    def test_uploaded_training_data_pipeline_and_ownership(self):
+        uploaded = self.client.post("/v1/artifacts", headers=self.alice,
+                                    json={"x": [0, 1, 2], "y": [1, 3, 5]})
+        self.assertEqual(uploaded.status_code, 201)
+        artifact_id = uploaded.json()["artifact_id"]
+        self.assertEqual(self.submit(template_id="linear_regression_v1", parameters=None,
+                                     input_artifact_id=artifact_id).status_code, 202)
+        self.assertEqual(self.submit(parameters=None, input_artifact_id=artifact_id,
+                                     idempotency_key="wrong-template").status_code, 422)
+        body = {"template_id": "linear_regression_v1", "input_artifact_id": artifact_id, "idempotency_key": "other"}
+        self.assertEqual(self.client.post("/v1/jobs", headers=self.bob, json=body).status_code, 404)
+
+    def test_real_training_math(self):
+        from core.training import train_linear
+        model = train_linear({"x": [0, 1, 2, 3], "y": [1, 3, 5, 7]})
+        self.assertEqual(model["slope"], 2)
+        self.assertEqual(model["intercept"], 1)
+        self.assertEqual(model["training_mse"], 0)
 
 
 if __name__ == "__main__":

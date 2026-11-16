@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GreenTokens Provider: download for Windows and Mac</title>
+  <meta name="description" content="Download GreenTokens Provider for Windows or Mac. Install it, press one button, and share your computer's spare power. Disconnect any time.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1024 1024'%3E%3Crect width='1024' height='1024' rx='224' fill='%23047857'/%3E%3Cpath d='M512 196c-174 0-316 142-316 316s142 316 316 316 316-142 316-316H520' fill='none' stroke='%23fff' stroke-width='96' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <style>
+    :root {
+      --bg: #f8fafc; --card: #ffffff; --text: #0f172a; --muted: #475569; --line: #e2e8f0;
+      --green: #047857; --green-dark: #065f46; --green-soft: #ecfdf5; --amber-bg: #fffbeb; --amber-line: #fcd34d; --amber-text: #78350f;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg: #0b1220; --card: #111a2e; --text: #e5edf8; --muted: #a3b3c9; --line: #22304a;
+        --green: #10b981; --green-dark: #34d399; --green-soft: #0f2a24; --amber-bg: #2a2110; --amber-line: #7a5c14; --amber-text: #fde68a; }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text);
+      font: 16px/1.6 "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, sans-serif; }
+    main { max-width: 640px; margin: 0 auto; padding: 48px 16px 64px; }
+    .brand { display: flex; align-items: center; gap: 12px; font-weight: 600; font-size: 1.1rem; }
+    h1 { font-size: clamp(1.9rem, 6vw, 2.6rem); line-height: 1.15; margin: 32px 0 12px; }
+    .lead { color: var(--muted); font-size: 1.15rem; margin: 0 0 32px; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 20px; padding: 28px; text-align: center; }
+    .btn { display: inline-flex; align-items: center; gap: 12px; background: var(--green); color: #fff; text-decoration: none;
+      font-weight: 600; font-size: 1.3rem; padding: 18px 36px; border-radius: 16px; }
+    @media (prefers-color-scheme: dark) { .btn { color: #052e22; } }
+    .btn:hover { background: var(--green-dark); }
+    .btn:focus-visible { outline: 3px solid var(--green); outline-offset: 3px; }
+    .buttons { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; }
+    .buttons .btn { font-size: 1.15rem; padding: 16px 28px; }
+    .buttons .primary { order: -1; }
+    .meta { color: var(--muted); font-size: .9rem; margin: 14px 0 0; }
+    #other-os { display: none; margin: 0 0 16px; padding: 10px 14px; border-radius: 12px; background: var(--amber-bg);
+      border: 1px solid var(--amber-line); color: var(--amber-text); font-size: .95rem; }
+    h2 { font-size: 1.15rem; margin: 40px 0 12px; }
+    ol { margin: 0; padding: 0; list-style: none; counter-reset: step; display: grid; gap: 12px; }
+    li { counter-increment: step; display: flex; gap: 14px; align-items: flex-start; }
+    li::before { content: counter(step); flex: none; width: 30px; height: 30px; border-radius: 50%; background: var(--green-soft);
+      color: var(--green); font-weight: 700; display: grid; place-items: center; }
+    .note { margin-top: 32px; padding: 16px 18px; border-radius: 14px; background: var(--amber-bg); border: 1px solid var(--amber-line);
+      color: var(--amber-text); font-size: .95rem; }
+    .note strong { display: block; margin-bottom: 2px; }
+    footer { margin-top: 40px; color: var(--muted); font-size: .9rem; }
+    footer a { color: inherit; }
+  </style>
+</head>
+<body>
+<main>
+  <div class="brand">
+    <svg width="36" height="36" viewBox="0 0 1024 1024" aria-hidden="true"><rect width="1024" height="1024" rx="224" fill="#047857"/><path d="M512 196c-174 0-316 142-316 316s142 316 316 316 316-142 316-316H520" fill="none" stroke="#fff" stroke-width="96" stroke-linecap="round" stroke-linejoin="round"/><path d="M640 512c0-71-57-128-128-128" fill="none" stroke="#a7f3d0" stroke-width="72" stroke-linecap="round"/></svg>
+    GreenTokens Provider
+  </div>
+
+  <h1>Connect your computers into one. One button.</h1>
+  <p class="lead">Install it on each computer, share a code, press the power button. Disconnect any time.</p>
+
+  <div class="card">
+    <p id="other-os" role="note">Pick the version for your computer below.</p>
+    <div class="buttons">
+      <a class="btn" id="dl-win" href="https://github.com/Mrl-slll/greentokens/releases/download/provider-v0.1.0/GreenTokens-Provider-Setup.exe"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0l-5-5m5 5l5-5M4 21h16"/></svg> Download for Windows</a>
+      <a class="btn" id="dl-mac" href="https://github.com/Mrl-slll/greentokens/releases/download/provider-v0.1.0/GreenTokens-Provider-macOS.dmg"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0l-5-5m5 5l5-5M4 21h16"/></svg> Download for Mac</a>
+    </div>
+    <p class="meta">Windows 10 or 11 · macOS 11 or newer (Apple silicon and Intel) · Free · Version 0.1.0 (preview)</p>
+  </div>
+
+  <h2>Three steps</h2>
+  <ol>
+    <li><span><strong>Install on each computer.</strong> <em>Windows:</em> if it says "Windows protected your PC", click <strong>More info → Run anyway</strong>. <em>Mac:</em> drag the app to Applications, then <strong>right-click → Open → Open</strong> the first time.</span></li>
+    <li><span><strong>Computer 1: Start a group</strong> and copy the code. <strong>Other computers: Join a group</strong> and paste it.</span></li>
+    <li><span><strong>Press the power button.</strong> The first time, setup takes a few minutes. Windows asks once to allow the app on your private network; a Mac may ask to find devices on your local network: choose Allow.</span></li>
+  </ol>
+
+  <div class="note">
+    <strong>This is a preview.</strong>
+    Groups really connect computers on your local network, protected by the code. Only join groups run by people you trust: the leader can run programs on connected computers. On Windows, your network must be set to Private. Mixing Windows and Mac in one group is untested. It never connects by itself, and closing the app disconnects.
+  </div>
+
+  <footer>
+    To remove it: Windows <strong>Settings → Apps → Installed apps → GreenTokens Provider → Uninstall</strong>; Mac: drag the app from Applications to the Trash.
+    · <a href="https://github.com/Mrl-slll/greentokens/releases/tag/provider-v0.1.0">Release notes</a>
+  </footer>
+</main>
+<script>
+  // Put the button for this computer first; both stay visible.
+  var platform = ((navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || "") + " " + navigator.userAgent;
+  var mac = /mac/i.test(platform) && !/iphone|ipad/i.test(platform), win = /win/i.test(platform);
+  if (mac) document.getElementById("dl-mac").classList.add("primary");
+  if (win) document.getElementById("dl-win").classList.add("primary");
+  if (!mac && !win) document.getElementById("other-os").style.display = "block";
+</script>
+</body>
+</html>

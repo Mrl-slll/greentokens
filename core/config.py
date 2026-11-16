@@ -1,3 +1,4 @@
+import json
 import os
 from dataclasses import dataclass, field
 from urllib.parse import urlsplit
@@ -13,6 +14,7 @@ class Settings:
     ray_endpoint: str = "http://127.0.0.1:8265"
     artifact_ttl_seconds: int = 86400
     max_bytes: int = 65536
+    api_keys: dict = field(default_factory=dict, repr=False)  # sha256(key) -> existing user id
 
     @classmethod
     def from_env(cls):
@@ -26,6 +28,7 @@ class Settings:
             s3_endpoint=os.environ.get("GT_S3_ENDPOINT", "http://127.0.0.1:8333"),
             ray_endpoint=os.environ.get("GT_RAY_ENDPOINT", "http://127.0.0.1:8265"),
         )
+        result.api_keys = json.loads(os.environ.get("GT_API_KEYS", "{}"))
         for value in (result.s3_endpoint, result.ray_endpoint):
             if urlsplit(value).hostname not in {"127.0.0.1", "localhost", "::1"}:
                 raise RuntimeError("This development build requires loopback service endpoints")
