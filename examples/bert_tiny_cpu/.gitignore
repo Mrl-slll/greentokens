@@ -7,3 +7,6 @@ smoke-test/
 *.safetensors
 pytorch_model*.bin
 metrics.json
+assets/dataset/*.parquet
+assets/**/.download-*
+!assets/model/pytorch_model.bin

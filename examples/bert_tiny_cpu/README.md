@@ -25,6 +25,7 @@ python3.11 -m venv .venv
 .venv/bin/python -m pip install --upgrade pip
 .venv/bin/python -m pip install 'torch>=2.6,<3'
 .venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python download_assets.py
 .venv/bin/python train_bert_tiny.py
 ```
 
@@ -41,10 +42,16 @@ py -3.11 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install --upgrade pip
 .\.venv\Scripts\python.exe -m pip install "torch>=2.6,<3" --index-url https://download.pytorch.org/whl/cpu
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe download_assets.py
 .\.venv\Scripts\python.exe train_bert_tiny.py
 ```
 
-The first run downloads public model weights and data from Hugging Face.
+The actual pretrained weights, configuration and vocabulary are included in
+[`assets/model/`](assets/model/). Run `download_assets.py` once to fetch pinned
+SST-2 files into the local `assets/dataset/` directory and verify all hashes.
+SST-2 has unknown upstream license metadata, so raw data is not republished
+on GitHub. See [asset provenance and local download instructions](assets/README.md).
+After dependencies and assets are prepared, training uses local files only.
 The newly initialized classification-head warning is expected when loading this
 pretrained encoder for a new classification task.
 
@@ -66,8 +73,8 @@ classifying `This movie was wonderful.` The predicted label and validation
 accuracy are measured outputs, not guaranteed outcomes.
 
 The report includes training-loop wall time, process CPU time, overall time
-(including first-run downloads, preparation, evaluation, saving and reload),
-hostname, dependency versions, the selected-data hash, and checkpoint-reload
+(including preparation, evaluation, saving and reload, but excluding the separate asset download),
+hostname, dependency versions, pinned model/dataset revisions, the selected-data hash, and checkpoint-reload
 verification. CPU percent uses 100% for one fully occupied logical core and may
 exceed 100%. Model files support inference; optimizer state for exact training
 resumption is not saved.
@@ -84,11 +91,14 @@ add `--examples 30 --epochs 1 --output smoke-test`. This does not replace the
 
 ## Validation status
 
-The imported starter has passed Python syntax, CLI help, and argument-rejection
-checks. Training dependencies are not installed in the authoring environment;
-no download, training run, accuracy, checkpoint, or multi-node result has been
-verified. This example must pass a real single-machine run before being used as
-a benchmark. Version ranges are not a tested lockfile: record resolved packages
+Python syntax, CLI help, argument rejection, asset integrity and downloader
+regression checks have passed. All seven original model/data files were downloaded
+and verified against upstream blob hashes or LFS SHA-256 digests. Only model files
+are committed. The downloader also completed a fresh end-to-end download with
+TLS verification enabled using the macOS system CA bundle (`SSL_CERT_FILE=/etc/ssl/cert.pem`). Training dependencies are not installed in the authoring environment;
+model loading, fine-tuning, accuracy, checkpoint reload and multi-node execution
+remain unverified. This example must pass a real single-machine run before being used as
+a benchmark. The model and dataset content revisions are pinned; Python dependency ranges are not a tested lockfile: record resolved packages
 after a successful run and use consistent versions across benchmark machines.
 
 ## Next: three real computers
@@ -122,3 +132,9 @@ timeout, cancellation, and artifact design with the core backend owner.
 The starter uses Transformers model/tokenizer APIs, Hugging Face Datasets,
 PyTorch's existing optimizer and data loader, and safetensors serialization.
 There is no custom distributed protocol or vendored third-party training framework.
+
+Downloader tests (standard library only):
+
+```bash
+python3.11 -m unittest discover -s tests -v
+```

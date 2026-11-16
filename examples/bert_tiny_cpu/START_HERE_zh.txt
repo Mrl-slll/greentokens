@@ -14,7 +14,9 @@ GreenTokens · BERT-Tiny CPU 训练起步包
 3. train_bert_tiny.py    单机 CPU 训练脚本。
 4. requirements.txt     Python 依赖清单（PyTorch 按系统单独安装）。
 
-模型和数据不包含在仓库内，脚本首次运行时会从 Hugging Face 下载。
+实际预训练模型已包含在 assets/model/。新增 download_assets.py 根据固定版本和校验值
+下载 SST-2 到本地 assets/dataset/。上游数据许可证为 unknown，所以原始数据不公开
+转载到 GitHub。详见 assets/README.md；安装依赖、准备数据后即可从本地文件训练。
 
 先怎么做？
 ==========
@@ -27,6 +29,7 @@ python3.11 -m venv .venv
 .venv/bin/python -m pip install --upgrade pip
 .venv/bin/python -m pip install 'torch>=2.6,<3'
 .venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python download_assets.py
 .venv/bin/python train_bert_tiny.py
 
 Windows（Intel/AMD 64 位）：先安装 Python 3.11，在 PowerShell 中逐行运行：
@@ -35,6 +38,7 @@ py -3.11 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install --upgrade pip
 .\.venv\Scripts\python.exe -m pip install "torch>=2.6,<3" --index-url https://download.pytorch.org/whl/cpu
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe download_assets.py
 .\.venv\Scripts\python.exe train_bert_tiny.py
 
 如果是 Intel Mac 或 ARM Windows，先确认相应的 PyTorch 安装方案，不直接套用以上命令。
@@ -83,7 +87,7 @@ WSL2 或 Linux 虚拟机可作为候选，但虚拟化本身不会自动解决�
 目前完成到哪里？
 ================
 已准备脚本与说明，通过 Python 语法和命令行帮助检查。
-尚未安装训练依赖、实际训练、生成模型检查点或连接三台电脑。
+模型和数据已下载并校验；尚未安装训练依赖、实际训练、生成微调检查点或连接三台电脑。
 本包不包含三机启动脚本，三机环境与网络确认后再补齐。
 
 参考链接
