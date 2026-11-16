@@ -134,6 +134,8 @@ def attach_environment():
         raise RuntimeError(f"Set GT_GROUP_CODE to the group code. {exc}") from None
     os.environ.update({"RAY_AUTH_MODE": "token", "RAY_AUTH_TOKEN": token,
                        "RAY_ENABLE_WINDOWS_OR_OSX_CLUSTER": "1",
+                       # The group runs the provider runtime's Python; the backend may differ in patch version.
+                       "RAY_DEFAULT_PYTHON_VERSION_MATCH_LEVEL": "minor",
                        "GT_RAY_ENDPOINT": "http://127.0.0.1:8265"})
     return f"{ip}:{agent.GCS_PORT}"
 

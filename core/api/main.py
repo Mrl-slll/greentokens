@@ -9,7 +9,7 @@ from pydantic import ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
-from core.api.schemas import Numbers, TrainingData, Submission, input_model
+from core.api.schemas import BERT_CPUS_PER_WORKER, Numbers, TrainingData, Submission, input_model
 from core.artifacts.storage import ArtifactError, Storage
 from core.config import Settings
 from core.database.models import Artifact, Attempt, Job, Organization, Usage, User, Worker, now
@@ -109,7 +109,7 @@ def create_app(settings=None, sessions=None, storage=None):
         with sessions() as db:
             artifact = owned(db, Artifact, artifact_id, user)
             data = storage.read(artifact)
-        return Response(data, media_type="text/plain" if artifact.kind == "log" else "application/json")
+        return Response(data, media_type={"log": "text/plain", "model": "application/octet-stream"}.get(artifact.kind, "application/json"))
 
     @app.post("/v1/jobs", status_code=202)
     def submit(body: Submission, user=Depends(identity)):
@@ -134,8 +134,14 @@ def create_app(settings=None, sessions=None, storage=None):
             workers = db.scalars(select(Worker).where(Worker.trusted.is_(True),
                 Worker.paused.is_(False), Worker.last_seen_at > now() - timedelta(seconds=60),
                 Worker.workload_class == body.requirements.execution_class)).all()
-            if not any(w.cpu_cores >= body.requirements.cpu_cores and
-                       w.ram_gb >= body.requirements.ram_gb for w in workers):
+            if body.template_id == "bert_tiny_ddp_v1":
+                # One worker per computer: each needs enough CPUs, and enough computers must be online.
+                needed = body.parameters.workers
+                ready = [w for w in workers if w.cpu_cores >= BERT_CPUS_PER_WORKER]
+                if len(ready) < needed:
+                    raise HTTPException(422, f"Not enough computers online: {needed} needed, {len(ready)} available")
+            elif not any(w.cpu_cores >= body.requirements.cpu_cores and
+                         w.ram_gb >= body.requirements.ram_gb for w in workers):
                 raise HTTPException(422, "No eligible trusted worker for requested resources")
             active = db.scalar(select(func.count()).select_from(Job).where(
                 Job.organization_id == user.organization_id, Job.status.not_in(TERMINAL)))

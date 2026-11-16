@@ -1,5 +1,6 @@
 """Phase A spike: can independent provider computers train ONE model together through a
 per-job Ray head owned by the GreenTokens server?  Nothing here is product code.
+Gradients are exchanged through Ray's own transfer (Gloo's address choice failed between Windows and Mac).
 
     python scripts/spike_job_cluster.py head                 # start the job head on this server (0 CPUs)
     python scripts/spike_job_cluster.py join-local --python <provider runtime python> [--cpus 4]
@@ -55,19 +56,34 @@ def read_code():
     return agent().parse_code(CODE_FILE.read_text().strip())
 
 
-def head(_args):
+def start_head(dashboard=False):
+    """Start the job head with THIS Python's Ray (0 CPUs, fresh token). Returns (ip, token).
+
+    dashboard=True also serves the Ray Jobs API on 127.0.0.1:8265, which the backend dispatcher uses.
+    """
     token, ip = secrets.token_hex(16), agent().lan_ip()
     args = [ray_exe(sys.executable), "start", "--head", "--num-cpus", "0", "--num-gpus", "0",
-            "--node-ip-address", ip, "--temp-dir", HEAD_TEMP, "--include-dashboard", "false",
+            "--node-ip-address", ip, "--temp-dir", HEAD_TEMP,
+            "--include-dashboard", "true" if dashboard else "false",
             "--min-worker-port", str(HEAD_WORKER_PORTS[0]), "--max-worker-port", str(HEAD_WORKER_PORTS[1]),
             "--disable-usage-stats", "--log-style", "record", "--log-color", "false"]
+    if dashboard:
+        args += ["--dashboard-host", "127.0.0.1", "--dashboard-port", "8265"]
     for flag, port in HEAD_PORTS.items():
         args += [flag, str(port)]
     result = subprocess.run(args, env=ray_env(token), capture_output=True, text=True)
     if result.returncode:
-        sys.exit("Head failed: " + (result.stderr or result.stdout).strip().splitlines()[-1][:300])
+        raise RuntimeError("Head failed: " + (result.stderr or result.stdout).strip().splitlines()[-1][:300])
     CODE_FILE.parent.mkdir(exist_ok=True)
     CODE_FILE.write_text(f"GT1-{ip}-{token}")
+    return ip, token
+
+
+def head(_args):
+    try:
+        ip, _ = start_head()
+    except RuntimeError as exc:
+        sys.exit(str(exc))
     print(f"Job head running on {ip} (0 CPUs). Join code written to {CODE_FILE}")
 
 
@@ -94,72 +110,118 @@ def down(args):
 def _kill_matching(marker):
     """Kill only processes whose command line contains this folder; never `ray stop`."""
     if os.name == "nt":
-        script = ("$n=0; Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and "
-                  f"$_.CommandLine.Contains('{marker}') -and $_.ProcessId -ne {os.getpid()} }} | "
-                  "ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue; $n++ }; $n")
+        script = ("$m = @(Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and "
+                  f"$_.CommandLine.Contains('{marker}') -and $_.ProcessId -ne {os.getpid()} }}); "
+                  "$m | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }; $m.Count")
         out = subprocess.run(["powershell.exe", "-NoProfile", "-Command", script], capture_output=True, text=True).stdout
-        return int(out.strip() or 0)
+        return int(out.strip().splitlines()[-1] or 0) if out.strip() else 0
     return int(subprocess.run(["pkill", "-f", marker]).returncode == 0)
 
 
+class Reducer:
+    """Meeting point for the gradient exchange. Workers hand over a reference to their gradients; the data
+    itself moves computer-to-computer through Ray's own transfer, so no PyTorch/Gloo address selection is needed."""
+
+    def __init__(self, world):
+        import asyncio
+        self.world, self.data, self.events, self.asyncio = world, {}, {}, asyncio
+
+    async def exchange(self, step, rank, refs):
+        slot = self.data.setdefault(step, {})
+        event = self.events.setdefault(step, self.asyncio.Event())
+        slot[rank] = refs[0]
+        if len(slot) == self.world:
+            event.set()
+        await event.wait()
+        result = [slot[r] for r in sorted(slot)]
+        for old in [s for s in self.data if s < step - 2]:  # keep memory bounded
+            self.data.pop(old, None)
+            self.events.pop(old, None)
+        return result
+
+
 class DDPWorker:
-    """Runs on a provider node. Self-contained so Ray ships it by value."""
+    """Runs on a provider node: synchronous data-parallel training. Self-contained so Ray ships it by value."""
 
     def info(self):
         import platform, socket, ray
         return {"host": socket.gethostname(), "os": f"{platform.system()} {platform.machine()}",
                 "python": platform.python_version(), "ip": ray.util.get_node_ip_address()}
 
-    def free_port(self):
-        import socket
-        with socket.socket() as s:
-            s.bind(("", 0))
-            return s.getsockname()[1]
-
-    def setup(self, master, port, rank, world):
-        from datetime import timedelta
-        import torch, torch.distributed as dist
-        torch.set_num_threads(2)
-        dist.init_process_group("gloo", init_method=f"tcp://{master}:{port}", rank=rank,
-                                world_size=world, timeout=timedelta(seconds=120))
-        self.rank, self.world = rank, world
-        return rank
-
-    def allreduce(self):
-        import torch, torch.distributed as dist
-        t = torch.tensor([float(self.rank + 1)])
-        dist.all_reduce(t)
-        return t.item()
-
-    def train(self, steps, examples):
+    def train(self, reducer, rank, world, steps, examples, global_batch, max_length, sync_every=1):
         import socket, time
-        import torch, torch.distributed as dist
+        import numpy as np
+        import ray, torch
         from datasets import load_dataset
-        from torch.nn.parallel import DistributedDataParallel
-        from torch.utils.data import DataLoader, DistributedSampler
         from transformers import AutoModelForSequenceClassification, AutoTokenizer, set_seed
+        torch.set_num_threads(2)
         set_seed(42)
         tok = AutoTokenizer.from_pretrained("prajjwal1/bert-tiny")
-        model = DistributedDataParallel(AutoModelForSequenceClassification.from_pretrained("prajjwal1/bert-tiny", num_labels=2))
+        model = AutoModelForSequenceClassification.from_pretrained("prajjwal1/bert-tiny", num_labels=2)
+        params = [p for p in model.parameters() if p.requires_grad]
+
+        def flat(tensors):
+            return torch.cat([t.reshape(-1) for t in tensors]).detach().numpy()
+
+        def exchange(step, vector):
+            ref = ray.put(vector)
+            refs = ray.get(reducer.exchange.remote(step, rank, [ref]))
+            return [ray.get(r) for r in refs]
+
+        # Every worker starts from rank 0's exact weights (what DDP does at start-up), whatever the OS.
+        start_sync = time.perf_counter()
+        initial = exchange(-1, flat(params))[0]
+        offset = 0
+        with torch.no_grad():
+            for p in params:
+                p.copy_(torch.from_numpy(initial[offset:offset + p.numel()].copy()).view_as(p))
+                offset += p.numel()
         raw = load_dataset("stanfordnlp/sst2")["train"].shuffle(seed=42).select(range(examples))
         sentences, labels = list(raw["sentence"]), list(raw["label"])  # datasets 4.x returns column objects
-        enc = tok(sentences, truncation=True, padding="max_length", max_length=64, return_tensors="pt")
-        data = list(zip(enc["input_ids"], enc["attention_mask"], torch.tensor(labels)))
-        loader = DataLoader(data, batch_size=max(1, 24 // self.world), sampler=DistributedSampler(data, self.world, self.rank, seed=42))
-        opt = torch.optim.AdamW(model.parameters(), lr=5e-5)
-        done, losses, start = 0, [], time.perf_counter()
-        while done < steps:
-            for ids, mask, labels in loader:
-                loss = model(input_ids=ids, attention_mask=mask, labels=labels).loss
-                opt.zero_grad(); loss.backward(); opt.step()
-                losses.append(round(loss.item(), 4)); done += 1
-                if done >= steps:
-                    break
-        # Proof the replicas stayed identical: checksum of all weights must match on every rank.
-        checksum = sum(p.detach().double().sum().item() for p in model.parameters())
-        dist.destroy_process_group()
-        return {"rank": self.rank, "host": socket.gethostname(), "steps": done, "first_loss": losses[0],
-                "last_loss": losses[-1], "seconds": round(time.perf_counter() - start, 1), "weights_checksum": round(checksum, 6)}
+        enc = tok(sentences, truncation=True, padding="max_length", max_length=max_length, return_tensors="pt")
+        ids_all, mask_all, labels_all = enc["input_ids"], enc["attention_mask"], torch.tensor(labels)
+        shard = list(range(rank, examples, world))  # disjoint slice of the data for this computer
+        per_worker = max(1, global_batch // world)
+        opt = torch.optim.AdamW(params, lr=5e-5)
+        losses, sync_seconds, cursor = [], 0.0, 0
+        start = time.perf_counter()
+        for step in range(steps):
+            idx = [shard[(cursor + i) % len(shard)] for i in range(per_worker)]
+            cursor += per_worker
+            loss = model(input_ids=ids_all[idx], attention_mask=mask_all[idx], labels=labels_all[idx]).loss
+            opt.zero_grad()
+            loss.backward()
+            if sync_every == 1:
+                # Standard synchronous data-parallel: average the gradients every step.
+                t = time.perf_counter()
+                grads = exchange(step, flat([p.grad for p in params]))
+                sync_seconds += time.perf_counter() - t
+                average = np.mean(grads, axis=0)
+                offset = 0
+                for p in params:
+                    p.grad.copy_(torch.from_numpy(average[offset:offset + p.numel()].copy()).view_as(p))
+                    offset += p.numel()
+                opt.step()
+            else:
+                # Periodic averaging ("local SGD"): train alone, then average the MODEL every sync_every steps
+                # (and at the last step, so every computer ends with identical weights).
+                opt.step()
+                if (step + 1) % sync_every == 0 or step == steps - 1:
+                    t = time.perf_counter()
+                    weights = np.mean(exchange(step, flat(params)), axis=0)
+                    sync_seconds += time.perf_counter() - t
+                    offset = 0
+                    with torch.no_grad():
+                        for p in params:
+                            p.copy_(torch.from_numpy(weights[offset:offset + p.numel()].copy()).view_as(p))
+                            offset += p.numel()
+            losses.append(round(loss.item(), 4))
+        elapsed = time.perf_counter() - start
+        checksum = sum(p.detach().double().sum().item() for p in params)
+        return {"rank": rank, "host": socket.gethostname(), "steps": steps, "first_loss": losses[0],
+                "last_loss": losses[-1], "seconds": round(elapsed, 2), "sync_seconds": round(sync_seconds, 2),
+                "seconds_per_step": round(elapsed / steps, 3), "samples_per_second": round(per_worker * world * steps / elapsed, 1),
+                "weights_checksum": round(checksum, 6)}
 
 
 def run(args):
@@ -173,26 +235,36 @@ def run(args):
     print("Provider nodes:", [(n["NodeManagerHostname"], n["Resources"].get("CPU")) for n in providers], flush=True)
     if len(providers) < args.workers:
         sys.exit(f"Need {args.workers} provider computers, only {len(providers)} joined.")
-    pg = placement_group([{"CPU": 2}] * args.workers, strategy="STRICT_SPREAD")
-    ray.get(pg.ready(), timeout=120)
     Worker = ray.remote(num_cpus=2)(DDPWorker)
     # --preinstalled: the packages are already in each provider's runtime (how the product will work).
     options = {} if args.preinstalled else {"runtime_env": {"pip": PINS}}
-    actors = [Worker.options(scheduling_strategy=PlacementGroupSchedulingStrategy(pg, i), **options).remote()
-              for i in range(args.workers)]
-    t0 = time.perf_counter()
-    print("Preparing each computer (first time installs torch etc.; can take several minutes)...", flush=True)
+    if args.host:  # run on one named computer (for comparing the computers one by one)
+        from ray.util.scheduling_strategies import NodeAffinitySchedulingStrategy
+        target = next((n for n in providers if n["NodeManagerHostname"].lower().startswith(args.host.lower())), None)
+        if target is None:
+            sys.exit(f"No joined computer named {args.host}.")
+        strategies = [NodeAffinitySchedulingStrategy(target["NodeID"], soft=False)] * args.workers
+    else:
+        pg = placement_group([{"CPU": 2}] * args.workers, strategy="STRICT_SPREAD")
+        ray.get(pg.ready(), timeout=120)
+        strategies = [PlacementGroupSchedulingStrategy(pg, i) for i in range(args.workers)]
+    actors = [Worker.options(scheduling_strategy=strategies[i], **options).remote() for i in range(args.workers)]
     infos = ray.get([a.info.remote() for a in actors], timeout=1800)
-    print("Workers:", json.dumps(infos), f"(ready after {time.perf_counter() - t0:.0f}s)", flush=True)
-    port = ray.get(actors[0].free_port.remote())  # chosen by rank 0, so it never collides with Ray's own ports
-    print(f"Rank 0 is {infos[0]['host']} ({infos[0]['os']}), Gloo port {port}", flush=True)
-    ray.get([a.setup.remote(infos[0]["ip"], port, r, args.workers) for r, a in enumerate(actors)], timeout=300)
-    print("Gloo all-reduce (expect", sum(range(1, args.workers + 1)), "):", ray.get([a.allreduce.remote() for a in actors]), flush=True)
-    results = ray.get([a.train.remote(args.steps, args.examples) for a in actors], timeout=1800)
-    print(json.dumps(results, indent=1))
+    print("Workers:", json.dumps(infos), flush=True)
+    reducer = ray.remote(num_cpus=0, max_concurrency=32)(Reducer).remote(args.workers)
+    results = ray.get([a.train.remote(reducer, r, args.workers, args.steps, args.examples, args.global_batch, args.max_length, args.sync_every)
+                       for r, a in enumerate(actors)], timeout=3600)
+    for r in results:
+        busy = r["seconds"] - r["sync_seconds"]
+        print(f"  {r['host']}: total {r['seconds']} s = {busy:.1f} s training ({busy / r['steps']:.3f} s/step) "
+              f"+ {r['sync_seconds']} s waiting/exchanging; final loss {r['last_loss']}")
     same = len({r["weights_checksum"] for r in results}) == 1
-    print("RESULT:", "PASS - one model trained across", len({r['host'] for r in results}), "computer(s), weights identical" if same
+    hosts = len({r["host"] for r in results})
+    print("RESULT:", f"PASS - one model trained across {hosts} computer(s), weights identical on all" if same
           else "FAIL - replicas diverged")
+    print(f"Speed: {results[0]['seconds_per_step']} s/step, {results[0]['samples_per_second']} samples/s "
+          f"({args.workers} worker(s), global batch {args.global_batch}, sequence length {args.max_length}); "
+          f"time spent exchanging gradients: {results[0]['sync_seconds']} s of {results[0]['seconds']} s")
 
 
 def main():
@@ -202,6 +274,9 @@ def main():
     j = sub.add_parser("join-local"); j.add_argument("--python", required=True); j.add_argument("--cpus", type=int, default=4)
     r = sub.add_parser("run"); r.add_argument("--workers", type=int, default=2)
     r.add_argument("--steps", type=int, default=10); r.add_argument("--examples", type=int, default=96)
+    r.add_argument("--global-batch", type=int, default=24); r.add_argument("--max-length", type=int, default=64)
+    r.add_argument("--host", help="run on the joined computer whose name starts with this")
+    r.add_argument("--sync-every", type=int, default=1, help="1 = average gradients every step; N = average the model every N steps")
     r.add_argument("--preinstalled", action="store_true", help="packages already installed in each provider runtime")
     d = sub.add_parser("down"); d.add_argument("--member", action="store_true")
     args = p.parse_args()

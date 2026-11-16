@@ -4,6 +4,7 @@ from datetime import timedelta
 
 from sqlalchemy import select, text
 
+from core.api.schemas import BERT_CPUS_PER_WORKER
 from core.artifacts.storage import ArtifactError, Storage
 from core.config import Settings
 from core.database.models import Artifact, Attempt, Job, Usage, Worker, now, uid
@@ -28,9 +29,15 @@ class Dispatcher:
                 return
             workers = db.scalars(select(Worker).where(Worker.trusted.is_(True), Worker.paused.is_(False),
                 Worker.last_seen_at > now() - timedelta(seconds=60))).all()
-            if not any(w.cpu_cores >= job.requirements["cpu_cores"] and
-                       w.ram_gb >= job.requirements["ram_gb"] and
-                       w.workload_class == job.requirements["execution_class"] for w in workers):
+            if job.template_id == "bert_tiny_ddp_v1":
+                ready = [w for w in workers if w.cpu_cores >= BERT_CPUS_PER_WORKER and
+                         w.workload_class == job.requirements["execution_class"]]
+                eligible = len(ready) >= job.parameters["workers"]
+            else:
+                eligible = any(w.cpu_cores >= job.requirements["cpu_cores"] and
+                               w.ram_gb >= job.requirements["ram_gb"] and
+                               w.workload_class == job.requirements["execution_class"] for w in workers)
+            if not eligible:
                 job.status, job.error_code = "FAILED", "NO_ELIGIBLE_WORKER"
                 return
             attempt_id = uid()

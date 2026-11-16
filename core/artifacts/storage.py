@@ -8,6 +8,10 @@ from botocore.exceptions import ClientError
 from core.database.models import Artifact, now, uid
 
 
+# Trained models are large; only this kind may exceed the normal small-artifact limit.
+LARGE_KIND_LIMITS = {"model": 64 * 1024 * 1024}
+
+
 class ArtifactError(Exception):
     pass
 
@@ -20,7 +24,7 @@ class Storage:
             aws_access_key_id=settings.s3_access_key,
             aws_secret_access_key=settings.s3_secret_key,
             config=Config(signature_version="s3v4", s3={"addressing_style": "path"},
-                          connect_timeout=5, read_timeout=10, retries={"max_attempts": 2}),
+                          connect_timeout=5, read_timeout=60, retries={"max_attempts": 2}),
         )
 
     def ensure_bucket(self):
@@ -32,12 +36,12 @@ class Storage:
             self.client.create_bucket(Bucket=self.settings.bucket)
 
     def put(self, organization_id, kind, data, job_id=None, attempt_id=None):
-        if len(data) > self.settings.max_bytes:
+        if len(data) > LARGE_KIND_LIMITS.get(kind, self.settings.max_bytes):
             raise ArtifactError("ARTIFACT_TOO_LARGE")
         artifact_id = uid()
         key = f"{organization_id}/{artifact_id}/{kind}"
         self.client.put_object(Bucket=self.settings.bucket, Key=key, Body=data,
-                               ContentType="application/json" if kind != "log" else "text/plain")
+                               ContentType={"log": "text/plain", "model": "application/octet-stream"}.get(kind, "application/json"))
         return Artifact(id=artifact_id, organization_id=organization_id,
                         job_id=job_id, attempt_id=attempt_id, object_key=key,
                         kind=kind, sha256=hashlib.sha256(data).hexdigest(), size_bytes=len(data),
@@ -50,7 +54,7 @@ class Storage:
             response = self.client.get_object(Bucket=self.settings.bucket, Key=artifact.object_key)
             stream = response["Body"]
             try:
-                data = stream.read(self.settings.max_bytes + 1)
+                data = stream.read(LARGE_KIND_LIMITS.get(artifact.kind, self.settings.max_bytes) + 1)
             finally:
                 stream.close()
         except ClientError as exc:

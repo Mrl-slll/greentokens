@@ -126,17 +126,89 @@ class CoreTests(unittest.TestCase):
         self.assertEqual((rows["n2"].hostname, rows["n2"].cpu_cores, round(rows["n2"].ram_gb)), ("mac", 8, 8))
         self.assertNotIn("n3", rows)
 
-    def test_ray_job_gets_settings_explicitly(self):
+    def test_ray_job_gets_settings_through_a_private_file_not_runtime_env(self):
         from core.ray_runtime import client as ray_client
         sent = {}
         class FakeJobs:
             def __init__(self, endpoint): pass
             def submit_job(self, **kwargs): sent.update(kwargs); return "id"
-        with patch.object(ray_client, "JobSubmissionClient", FakeJobs),              patch.dict(os.environ, {"GT_MODE": "development", "RAY_AUTH_TOKEN": "t", "UNRELATED_SECRET": "x"}):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp, patch.object(ray_client, "JobSubmissionClient", FakeJobs),              patch.object(ray_client, "JOB_ENV_DIR", Path(tmp)),              patch.dict(os.environ, {"GT_MODE": "development", "RAY_AUTH_TOKEN": "t", "UNRELATED_SECRET": "x"}):
             ray_client.RayJobs("http://127.0.0.1:8265").submit(SimpleNamespace(id="a", ray_submission_id="gt-a"))
-        env = sent["runtime_env"]["env_vars"]
-        self.assertEqual(env["GT_MODE"], "development")
-        self.assertNotIn("UNRELATED_SECRET", env)
+            self.assertNotIn("runtime_env", sent)  # would be copied to every computer and break Mac workers
+            self.assertIn("--env-file", sent["entrypoint"])
+            saved = json.loads((Path(tmp) / "a.json").read_text())
+        self.assertEqual(saved["GT_MODE"], "development")
+        self.assertNotIn("UNRELATED_SECRET", saved)
+
+    def test_run_job_reads_and_deletes_its_private_file(self):
+        import tempfile
+        from pathlib import Path
+        from scripts.run_job import load_private_env
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "x.json"
+            path.write_text(json.dumps({"GT_TEST_SETTING": "1"}))
+            with patch.dict(os.environ, {}, clear=False):
+                load_private_env(["run_job.py", "attempt", "--env-file", str(path)])
+                self.assertEqual(os.environ["GT_TEST_SETTING"], "1")
+                os.environ.pop("GT_TEST_SETTING")
+            self.assertFalse(path.exists())
+
+    def bert(self, **params):
+        body = {"template_id": "bert_tiny_ddp_v1", "parameters": params,
+                "requirements": {"cpu_cores": 2, "max_runtime_seconds": 1800}, "idempotency_key": "bert"}
+        return self.client.post("/v1/jobs", json=body, headers=self.alice)
+
+    def test_bert_job_needs_one_online_computer_per_worker(self):
+        # setUp has a single worker row: 2 workers cannot run, 1 can.
+        response = self.bert(workers=2)
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("Not enough computers online", response.json()["detail"])
+        self.assertEqual(self.bert(workers=1).status_code, 202)
+        with self.sessions.begin() as db:
+            db.add(Worker(id="mac", hostname="mac", cpu_cores=5, ram_gb=1))
+        body = {"template_id": "bert_tiny_ddp_v1", "parameters": {"workers": 2},
+                "requirements": {"max_runtime_seconds": 1800}, "idempotency_key": "bert2"}
+        self.assertEqual(self.client.post("/v1/jobs", json=body, headers=self.alice).status_code, 202)
+
+    def test_bert_dispatch_fails_when_a_computer_has_gone(self):
+        with self.sessions.begin() as db:
+            db.add(Worker(id="mac", hostname="mac", cpu_cores=5, ram_gb=1))
+        body = {"template_id": "bert_tiny_ddp_v1", "parameters": {"workers": 2},
+                "requirements": {"max_runtime_seconds": 1800}, "idempotency_key": "bert3"}
+        job_id = self.client.post("/v1/jobs", json=body, headers=self.alice).json()["job_id"]
+        with self.sessions.begin() as db:
+            db.get(Worker, "mac").last_seen_at = now() - timedelta(minutes=5)  # the Mac went offline
+        self.dispatcher.claim()
+        with self.sessions() as db:
+            job = db.get(Job, job_id)
+        self.assertEqual((job.status, job.error_code), ("FAILED", "NO_ELIGIBLE_WORKER"))
+
+    def test_bert_limits_and_other_templates_stay_short(self):
+        self.assertEqual(self.bert(workers=9).status_code, 422)
+        self.assertEqual(self.bert(workers=2, global_batch=1).status_code, 422)
+        self.assertEqual(self.bert(values=[1]).status_code, 422)
+        long_sum = self.submit(requirements={"max_runtime_seconds": 900})
+        self.assertEqual(long_sum.status_code, 422)
+
+    def test_model_artifacts_may_be_large_but_other_kinds_may_not(self):
+        big = b"x" * (5 * 1024 * 1024)
+        model = self.storage.put("org-a", "model", big, None, None)
+        self.assertEqual(self.storage.read(model), big)
+        with self.assertRaises(ArtifactError):
+            self.storage.put("org-a", "output", big)
+        with self.assertRaises(ArtifactError):
+            self.storage.put("org-a", "model", b"x" * (64 * 1024 * 1024 + 1))
+
+    def test_model_download_is_binary_and_owner_only(self):
+        job_id = self.submit().json()["job_id"]
+        model = self.storage.put("org-a", "model", b"\x00\x01weights", job_id, None)
+        with self.sessions.begin() as db:
+            db.add(model)
+        ok = self.client.get(f"/v1/artifacts/{model.id}", headers=self.alice)
+        self.assertEqual((ok.status_code, ok.headers["content-type"], ok.content), (200, "application/octet-stream", b"\x00\x01weights"))
+        self.assertEqual(self.client.get(f"/v1/artifacts/{model.id}", headers=self.bob).status_code, 404)
 
     def test_idempotency_and_body_ownership(self):
         first = self.submit()
