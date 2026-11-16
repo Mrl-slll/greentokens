@@ -59,6 +59,18 @@ jobs:
           New-Item -ItemType Directory -Force src-tauri/bin | Out-Null
           Copy-Item (Get-ChildItem $dir -Recurse -Filter uv.exe | Select-Object -First 1).FullName src-tauri/bin/uv.exe
           & src-tauri/bin/uv.exe --version
+      - name: Rust unit tests (live usage)
+        working-directory: apps/provider_app/src-tauri
+        shell: bash
+        run: |
+          set +e
+          cargo test 2>&1 | tee ../rust-test.log
+          code=${PIPESTATUS[0]}
+          if [ "$code" -ne 0 ]; then
+            grep -n -E "^(error|test .* FAILED)|-->|panicked" ../rust-test.log | head -30 | while IFS= read -r line; do echo "::error::${line:0:400}"; done
+            tail -n 25 ../rust-test.log | while IFS= read -r line; do echo "::error::tail: ${line:0:400}"; done
+          fi
+          exit $code
       - name: Build installer
         shell: bash
         run: |
@@ -131,6 +143,18 @@ jobs:
           codesign --force -s - src-tauri/bin/uv
           src-tauri/bin/uv --version
           lipo -info src-tauri/bin/uv
+      - name: Rust unit tests (live usage)
+        working-directory: apps/provider_app/src-tauri
+        shell: bash
+        run: |
+          set +e
+          cargo test 2>&1 | tee ../rust-test.log
+          code=${PIPESTATUS[0]}
+          if [ "$code" -ne 0 ]; then
+            grep -n -E "^(error|test .* FAILED)|-->|panicked" ../rust-test.log | head -30 | while IFS= read -r line; do echo "::error::${line:0:400}"; done
+            tail -n 25 ../rust-test.log | while IFS= read -r line; do echo "::error::tail: ${line:0:400}"; done
+          fi
+          exit $code
       - name: Build app and disk image
         run: |
           set +e

@@ -54,7 +54,7 @@ function Shell() {
       <div className="flex-1">
         <div role="note" className="border-b border-amber-200 bg-amber-50 px-6 py-2 text-sm text-amber-900">
           {service.mode === "live"
-            ? <><strong>Preview.</strong> Groups connect computers on your local network. GreenTokens jobs aren't sent to groups yet.</>
+            ? <><strong>Preview.</strong> While connected, this computer can receive GreenTokens training jobs. Earnings aren't offered during the pilot.</>
             : <><strong>Demo version.</strong> Connecting and activity are simulated; no jobs run on this computer. Hardware details are real.</>}
         </div>
         <main className="mx-auto max-w-4xl px-6 py-8">

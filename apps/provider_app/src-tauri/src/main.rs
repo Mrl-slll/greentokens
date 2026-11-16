@@ -3,12 +3,13 @@
 
 mod agent;
 mod hardware;
+mod usage;
 
 use tauri::Manager;
 
 fn main() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![hardware::detect_hardware, agent::agent])
+        .invoke_handler(tauri::generate_handler![hardware::detect_hardware, agent::agent, usage::live_usage])
         .on_window_event(|window, event| {
             // Disconnect from the group when the app closes; nothing runs in the background.
             if let tauri::WindowEvent::Destroyed = event {

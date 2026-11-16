@@ -1,3 +1,4 @@
+import { useLiveUsage } from "../hooks/useLiveUsage";
 import { Power } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useProvider } from "../hooks/useProvider";
@@ -37,6 +38,7 @@ export function HomeScreen() {
   const connected = participation === "active";
   const busy = participation === "starting" || participation === "pausing";
   const level = currentLevel(preferences, ramGb);
+  const { usage } = useLiveUsage(live && connected);
 
   // Session timer, like a VPN client.
   const [since, setSince] = useState<number | null>(null);
@@ -65,6 +67,7 @@ export function HomeScreen() {
         <p className="text-slate-600">{label.detail}</p>
         {connected && since !== null && <p className="mt-1 font-mono text-sm text-slate-500">{formatDuration((Date.now() - since) / 1000)}</p>}
         {connected && activity?.currentJob && <p className="mt-1 text-sm text-slate-600">Working on: {activity.currentJob.name}</p>}
+        {live && connected && usage && !usage.warmingUp && <p className="mt-1 text-sm text-slate-600">GreenTokens is using {usage.greentokensCpuPercent}% of this computer right now.</p>}
         {connected && activity?.leaderReachable === false && <p className="mt-1 text-sm font-medium text-amber-800">Can't reach the group leader right now.</p>}
         {participation === "paused" && !group && <p className="mt-1 text-sm text-slate-500">Start or join a group below first.</p>}
       </div>

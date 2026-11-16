@@ -60,6 +60,21 @@ export interface ActivityItem {
   status: JobStatus;
 }
 
+/** Real, current readings from this computer (installed app only). */
+export interface LiveUsage {
+  /** Whole-computer processor use, 0-100. */
+  cpuPercent: number;
+  ramUsedGb: number;
+  ramTotalGb: number;
+  /** Processor use by GreenTokens' own Ray workers, as a percent of the whole computer. */
+  greentokensCpuPercent: number;
+  greentokensProcesses: number;
+  /** null = the graphics card's use can't be measured on this computer (never shown as 0). */
+  gpuPercent: number | null;
+  /** The first reading after start isn't meaningful. */
+  warmingUp: boolean;
+}
+
 export interface Activity {
   connection: Connection;
   currentJob: ActivityItem | null;
