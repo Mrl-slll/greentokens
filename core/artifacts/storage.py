@@ -9,7 +9,7 @@ from core.database.models import Artifact, now, uid
 
 
 # Trained models are large; only this kind may exceed the normal small-artifact limit.
-LARGE_KIND_LIMITS = {"model": 64 * 1024 * 1024}
+LARGE_KIND_LIMITS = {"model": 512 * 1024 * 1024}
 
 
 class ArtifactError(Exception):

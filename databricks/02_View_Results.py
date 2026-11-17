@@ -48,9 +48,10 @@ from pyspark.sql.types import DoubleType, IntegerType, StringType, StructField, 
 num = lambda v: None if v is None else float(v)  # noqa: E731
 computer_schema = StructType([StructField(n, t, True) for n, t in [
     ("job_id", StringType()), ("rank", IntegerType()), ("computer", StringType()), ("os", StringType()),
-    ("python", StringType()), ("ray", StringType()), ("train_seconds", DoubleType()), ("sync_seconds", DoubleType()),
+    ("python", StringType()), ("ray", StringType()), ("gpu", StringType()), ("device", StringType()),
+    ("train_seconds", DoubleType()), ("sync_seconds", DoubleType()),
     ("total_seconds", DoubleType()), ("last_loss", DoubleType())]])
-computers = spark.createDataFrame([(r["job_id"], r["rank"], r["computer"], r["os"], r["python"], r["ray"],  # noqa: F821
+computers = spark.createDataFrame([(r["job_id"], r["rank"], r["computer"], r["os"], r["python"], r["ray"], r["gpu"], r["device"],  # noqa: F821
                                     num(r["train_seconds"]), num(r["sync_seconds"]), num(r["total_seconds"]), num(r["last_loss"]))
                                    for r in rows], computer_schema)
 display(computers)  # noqa: F821
@@ -64,7 +65,8 @@ summary_schema = StructType([StructField(n, t, True) for n, t in [
     ("job_id", StringType()), ("status", StringType()), ("template_id", StringType()), ("created_at", StringType()),
     ("updated_at", StringType()), ("error_code", StringType()), ("computers", IntegerType()), ("computer_names", StringType()),
     ("accuracy_before", DoubleType()), ("accuracy_after", DoubleType()), ("first_loss", DoubleType()), ("last_loss", DoubleType()),
-    ("wall_seconds", DoubleType()), ("model_mb", DoubleType()), ("model_sha256", StringType()), ("result_json", StringType())]])
+    ("wall_seconds", DoubleType()), ("model_name", StringType()), ("device", StringType()), ("gpu", StringType()),
+    ("model_mb", DoubleType()), ("model_sha256", StringType()), ("result_json", StringType())]])
 doubles = {"accuracy_before", "accuracy_after", "first_loss", "last_loss", "wall_seconds", "model_mb"}
 summary_df = spark.createDataFrame([tuple(num(summary[f.name]) if f.name in doubles else summary[f.name]  # noqa: F821
                                           for f in summary_schema.fields)], summary_schema)
@@ -75,7 +77,7 @@ try:
     for table, frame in ((f"{prefix}_training_jobs", summary_df), (f"{prefix}_training_computers", computers)):
         if spark.catalog.tableExists(table):  # noqa: F821
             spark.sql(f"DELETE FROM {table} WHERE job_id = '{job['job_id']}'")  # noqa: F821
-        frame.write.mode("append").saveAsTable(table)
+        frame.write.mode("append").option("mergeSchema", "true").saveAsTable(table)
     print(f"Saved to Catalog: {prefix}_training_jobs and {prefix}_training_computers")
 except Exception as exc:
     print("LIMITATION: could not save to Catalog, so nothing appears there. The tables above still show the results.",

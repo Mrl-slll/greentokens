@@ -21,21 +21,24 @@ export type HardwareResult =
   | { status: "unavailable"; reason: "browser" | "failed"; message: string };
 
 export type Participation = "paused" | "starting" | "active" | "pausing";
-export type Connection = "demo" | "offline" | "lan";
+export type Connection = "demo" | "offline" | "online";
 
-/** A private group of computers on one local network. The code carries the leader address and access token. */
-export interface Group {
-  role: "host" | "member";
-  code: string;
+export interface Credentials {
+  username: string;
+  password: string;
+  deviceId: string;
 }
 
-export const GROUP_CODE_RE = /^GT1-(\d{1,3}(?:\.\d{1,3}){3})-([0-9a-f]{32})$/;
-
+/** Result of the one-click setup (installs the training packages this computer can use). */
 export interface PrepareResult {
-  lanIp: string;
-  firewall: boolean;
-  networkPrivate: boolean;
+  torch: string | null;
+  gpu: string | null;
+  gpuReady: boolean;
+  note: string;
 }
+
+/** What the provider worker is doing right now (installed app). */
+export type WorkerState = "stopped" | "starting" | "online" | "working" | "reconnecting" | "error";
 
 export interface Account {
   displayName: string;
@@ -83,10 +86,11 @@ export interface Activity {
   totalSeconds: number;
   cpuPercent: number;
   gpuPercent: number | null;
-  /** Computers currently in the group (live mode); null when unknown. */
-  groupNodes?: number | null;
-  /** false when this computer can't currently reach the group leader. */
-  leaderReachable?: boolean;
+  /** Live mode: what the worker is doing, and the last problem if any. */
+  workerState?: WorkerState;
+  workerError?: string | null;
+  /** Live mode: progress of the current job, when the workload reports it. */
+  jobProgress?: { step: number; total: number } | null;
 }
 
 export const DEFAULT_PREFERENCES: Preferences = {

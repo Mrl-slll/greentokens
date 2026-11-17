@@ -9,7 +9,7 @@ import * as usageModule from "../src/services/usage";
 import type { HardwareDetector } from "../src/services/hardware";
 import type { HardwareResult, LiveUsage } from "../src/types/provider";
 
-const CODE = "GT1-192.168.1.20-0123456789abcdef0123456789abcdef";
+import { fakeAuth, signIn } from "./fixtures";
 const sample = (over: Partial<LiveUsage> = {}): LiveUsage => ({
   cpuPercent: 40, ramUsedGb: 9.5, ramTotalGb: 16, greentokensCpuPercent: 25, greentokensProcesses: 2, gpuPercent: null, warmingUp: false, ...over,
 });
@@ -41,15 +41,17 @@ it("says 'training' only when GreenTokens workers really use the processor", () 
 async function openLiveActivity(detect: HardwareDetector, readings: (LiveUsage | null)[]) {
   let call = 0;
   vi.spyOn(usageModule, "readLiveUsage").mockImplementation(async () => readings[Math.min(call++, readings.length - 1)]);
-  const agent = vi.fn(async ({ action }: { action: string }) => ({ ok: true, lan_ip: "192.168.1.30", firewall: true, network_private: true, connected: action !== "stop", nodes: 2 }) as never);
-  const service = createLiveProviderService(agent as never);
+  const bridge = {
+    agent: vi.fn(async () => ({ ok: true, torch: "2.15.0", gpu: null, gpu_ready: false, note: "" })),
+    workerStart: vi.fn(async () => ({ ok: true, running: true })),
+    workerStop: vi.fn(async () => ({ ok: true, running: false })),
+    workerState: vi.fn(async () => ({ state: "online", running: true })),
+  };
+  const service = createLiveProviderService(bridge as never, undefined, undefined, undefined, fakeAuth());
   render(createElement(App, { service, detectHardware: detect }));
-  fireEvent.click(await screen.findByRole("button", { name: "Join a group" }));
-  fireEvent.change(await screen.findByLabelText(/Group code/), { target: { value: CODE } });
-  fireEvent.click(screen.getByRole("button", { name: "Join" }));
-  await screen.findByText(/Joined the group led by/);
+  await signIn();
   fireEvent.click(screen.getByRole("button", { name: "Connect" }));
-  fireEvent.click(await screen.findByRole("button", { name: "Agree & Connect" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Yes, set up & connect" }));
   await screen.findByRole("heading", { name: "Connected" });
   fireEvent.click(screen.getByRole("button", { name: "Activity" }));
 }

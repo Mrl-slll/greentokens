@@ -14,7 +14,7 @@ from sqlalchemy.pool import StaticPool
 from core.api.main import create_app
 from core.artifacts.storage import ArtifactError, Storage
 from core.config import Settings
-from core.database.models import Artifact, Attempt, Base, Job, Usage, Worker, now
+from core.database.models import Artifact, Attempt, Base, Job, Organization, Usage, User, Worker, now
 from core.jobs.dispatcher import Dispatcher
 from scripts.local_stack import heartbeat, seed
 
@@ -198,8 +198,9 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(self.storage.read(model), big)
         with self.assertRaises(ArtifactError):
             self.storage.put("org-a", "output", big)
-        with self.assertRaises(ArtifactError):
-            self.storage.put("org-a", "model", b"x" * (64 * 1024 * 1024 + 1))
+        from core.artifacts import storage as storage_module
+        with patch.dict(storage_module.LARGE_KIND_LIMITS, {"model": 1024}), self.assertRaises(ArtifactError):
+            self.storage.put("org-a", "model", b"x" * 1025)
 
     def test_model_download_is_binary_and_owner_only(self):
         job_id = self.submit().json()["job_id"]
@@ -209,6 +210,83 @@ class CoreTests(unittest.TestCase):
         ok = self.client.get(f"/v1/artifacts/{model.id}", headers=self.alice)
         self.assertEqual((ok.status_code, ok.headers["content-type"], ok.content), (200, "application/octet-stream", b"\x00\x01weights"))
         self.assertEqual(self.client.get(f"/v1/artifacts/{model.id}", headers=self.bob).status_code, 404)
+
+    # ---- independent providers (connect outward, ask for work; no Ray on the provider) ----
+    def provider_setup(self):
+        with self.sessions.begin() as db:
+            db.add(Organization(id="org-p", name="Providers"))
+            db.flush()
+            db.add(User(id="prov1", organization_id="org-p", role="provider"))
+            db.add(User(id="prov2", organization_id="org-p", role="provider"))
+        keys = {hashlib.sha256(b"gt_provider_one").hexdigest(): "prov1", hashlib.sha256(b"gt_provider_two").hexdigest(): "prov2",
+                hashlib.sha256(b"gt_customer").hexdigest(): "alice"}
+        client = TestClient(create_app(SimpleNamespace(max_bytes=65536, api_keys=keys), self.sessions, self.storage))
+        return client, {"Authorization": "Bearer gt_provider_one"}, {"Authorization": "Bearer gt_customer"}
+
+    def beat(self, client, headers, device="device-0001", gpu=False):
+        caps = {"os": "Windows", "arch": "AMD64", "cpus": 16, "ram_gb": 32,
+                "gpus": [{"name": "NVIDIA GeForce RTX 5070", "vram_gb": 12}] if gpu else [], "torch_cuda": gpu}
+        return client.post("/v1/provider/heartbeat", headers=headers,
+                           json={"device_id": device, "name": "PC-" + device[-4:], "status": "online", "capabilities": caps})
+
+    def finetune(self, client, headers, key="ft1", **params):
+        return client.post("/v1/jobs", headers=headers, json={"template_id": "text_finetune_v1", "parameters": params,
+                           "requirements": {"max_runtime_seconds": 1800}, "idempotency_key": key})
+
+    def test_provider_connects_runs_a_job_and_returns_results(self):
+        client, prov, cust = self.provider_setup()
+        with client:
+            self.assertEqual(self.finetune(client, cust).status_code, 422)  # no provider online yet
+            self.assertEqual(self.beat(client, prov, gpu=True).status_code, 200)
+            job_id = self.finetune(client, cust, require_gpu=True).json()["job_id"]
+            work = client.post("/v1/provider/work", headers=prov, json={"device_id": "device-0001", "wait_seconds": 0}).json()
+            self.assertEqual((work["job_id"], work["workload"]["name"]), (job_id, "text_finetune"))
+            package = client.get(work["workload"]["url"], headers=prov)
+            self.assertEqual(hashlib.sha256(package.content).hexdigest(), work["workload"]["sha256"])
+            attempt, q = work["attempt_id"], {"device_id": "device-0001"}
+            self.assertTrue(client.post(f"/v1/provider/work/{attempt}/lease", headers=prov, json=q).json()["continue"])
+            output = json.dumps({"result": {"eval_after": {"accuracy": 0.8}}, "job_id": job_id, "attempt_id": attempt}).encode()
+            self.assertEqual(client.put(f"/v1/provider/work/{attempt}/artifacts/output", params=q, headers=prov, content=output).status_code, 200)
+            self.assertEqual(client.put(f"/v1/provider/work/{attempt}/artifacts/model", params=q, headers=prov, content=b"w" * 70000).status_code, 200)
+            done = client.post(f"/v1/provider/work/{attempt}/complete", headers=prov, json={**q, "status": "SUCCEEDED"}).json()
+            self.assertEqual(done["status"], "SUCCEEDED")
+            status = client.get(f"/v1/jobs/{job_id}", headers=cust).json()
+            self.assertEqual(status["attempts"][0]["worker_hostname"], "PC-0001")
+            self.assertEqual({a["kind"] for a in status["artifacts"]}, {"output", "model"})
+            self.assertEqual(client.get(f"/v1/jobs/{job_id}/result", headers=cust).json()["result"]["eval_after"]["accuracy"], 0.8)
+
+    def test_lost_provider_job_is_requeued_and_a_reconnect_gets_work(self):
+        client, prov, cust = self.provider_setup()
+        with client:
+            self.beat(client, prov)
+            job_id = self.finetune(client, cust).json()["job_id"]
+            first = client.post("/v1/provider/work", headers=prov, json={"device_id": "device-0001", "wait_seconds": 0}).json()
+            again = client.post("/v1/provider/work", headers=prov, json={"device_id": "device-0001", "wait_seconds": 0}).json()
+            self.assertEqual(first["attempt_id"], again["attempt_id"])  # reconnecting mid-job resumes the same work
+            with self.sessions.begin() as db:
+                db.get(Attempt, first["attempt_id"]).lease_expires_at = now() - timedelta(seconds=1)  # provider vanished
+            self.dispatcher.tick()
+            with self.sessions() as db:
+                self.assertEqual(db.get(Job, job_id).status, "QUEUED")
+                self.assertEqual(db.get(Attempt, first["attempt_id"]).error_code, "PROVIDER_LOST")
+            self.assertEqual(self.ray.submissions, 0)  # provider jobs never go to the server's Ray
+            self.beat(client, prov)  # reconnect
+            retry = client.post("/v1/provider/work", headers=prov, json={"device_id": "device-0001", "wait_seconds": 0}).json()
+            self.assertEqual((retry["job_id"], retry["attempt_id"] != first["attempt_id"]), (job_id, True))
+
+    def test_provider_security_boundaries(self):
+        client, prov, cust = self.provider_setup()
+        with client:
+            self.assertEqual(self.beat(client, cust).status_code, 403)  # customer key is not a provider key
+            self.beat(client, prov)
+            self.assertEqual(self.finetune(client, prov, key="p").status_code, 403)  # providers cannot submit jobs
+            other = {"Authorization": "Bearer gt_provider_two"}
+            self.assertEqual(self.beat(client, other, device="device-0001").status_code, 403)  # someone else's device
+            self.assertEqual(client.post("/v1/provider/work", headers=other, json={"device_id": "device-0001", "wait_seconds": 0}).status_code, 404)
+            self.finetune(client, cust, key="gpu", require_gpu=True)
+            self.assertEqual(self.finetune(client, cust, key="gpu2", require_gpu=True).status_code, 422)  # no GPU provider online
+            self.assertEqual(client.post("/v1/provider/work", headers=prov, json={"device_id": "device-0001", "wait_seconds": 0}).status_code, 204)
+            self.assertEqual(client.get("/v1/provider/packages/../../etc", headers=prov).status_code, 404)
 
     def test_idempotency_and_body_ownership(self):
         first = self.submit()

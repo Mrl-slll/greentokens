@@ -1,6 +1,6 @@
 import { createElement } from "react";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, beforeEach, expect, it } from "vitest";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import App from "../src/App";
 import { createMockProviderService } from "../src/services/mockProviderService";
 import type { HardwareDetector } from "../src/services/hardware";
@@ -8,6 +8,7 @@ import type { HardwareResult } from "../src/types/provider";
 
 const laptop: HardwareResult = { status: "ok", hardware: { cpuModel: "Test CPU", cores: 8, threads: 16, ramGb: 16, gpus: [], os: "Windows 11", hostname: "TESTPC" } };
 const detect = (r: HardwareResult = laptop): HardwareDetector => async () => r;
+import { signIn } from "./fixtures";
 
 beforeEach(() => localStorage.clear());
 afterEach(cleanup);
@@ -18,33 +19,30 @@ function renderApp(service = createMockProviderService({ delayMs: 0 }), hw = det
 }
 
 const connect = () => fireEvent.click(screen.getByRole("button", { name: "Connect" }));
-async function startGroup() {
-  fireEvent.click(screen.getByRole("button", { name: "Start a group" }));
-  await screen.findByText(/This computer leads the group/);
-}
-const agree = () => fireEvent.click(screen.getByRole("button", { name: "Agree & Connect" }));
+const agree = () => fireEvent.click(screen.getByRole("button", { name: "Yes, set up & connect" }));
 
-it("opens straight to a single Connect button, disconnected, with no sign-in step", () => {
+it("opens straight to a single Connect button, disconnected", () => {
   renderApp();
   expect(screen.getByRole("heading", { name: "Not connected" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "Connect" })).toBeTruthy();
-  expect(screen.queryByText(/sign in/i)).toBeNull();
 });
 
-it("asks for consent on the first Connect and does not connect until the user agrees", async () => {
+it("asks once to set up the computer and does not connect until the owner agrees", async () => {
   renderApp();
-  await startGroup();
+  await signIn();
   connect();
-  expect(screen.getByRole("dialog", { name: "Before you connect" })).toBeTruthy();
+  const dialog = screen.getByRole("dialog", { name: "Before you connect" });
+  expect(dialog.textContent).toMatch(/Allow GreenTokens to set up this computer/);
+  expect(dialog.textContent).toMatch(/PyTorch/);
   expect(screen.getByRole("heading", { name: "Not connected" })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Not now" }));
   expect(screen.queryByRole("dialog")).toBeNull();
   expect(screen.getByRole("heading", { name: "Not connected" })).toBeTruthy();
 });
 
-it("connects only after confirmation, then disconnects; later connects don't ask again", async () => {
+it("sets up and connects only after Yes, then disconnects; later connects don't ask again", async () => {
   renderApp();
-  await startGroup();
+  await signIn();
   connect();
   agree();
   expect(screen.getByRole("heading", { name: "Connecting…" })).toBeTruthy();
@@ -58,7 +56,7 @@ it("connects only after confirmation, then disconnects; later connects don't ask
 
 it("stays disconnected and explains when GreenTokens is unreachable", async () => {
   const service = renderApp();
-  await startGroup();
+  await signIn();
   service.options.disconnected = true;
   connect();
   agree();
@@ -66,9 +64,9 @@ it("stays disconnected and explains when GreenTokens is unreachable", async () =
   expect(screen.getByRole("heading", { name: "Not connected" })).toBeTruthy();
 });
 
-it("opens disconnected after a restart while keeping consent and the chosen level", async () => {
+it("opens disconnected after a restart while keeping consent and preferences but requiring sign-in", async () => {
   renderApp();
-  await startGroup();
+  await signIn();
   fireEvent.click(screen.getByRole("radio", { name: /Maximum/ }));
   await screen.findByText(/Limits aren't enforced yet/);
   connect();
@@ -79,6 +77,8 @@ it("opens disconnected after a restart while keeping consent and the chosen leve
   renderApp();
   expect(screen.getByRole("heading", { name: "Not connected" })).toBeTruthy();
   expect(await screen.findByRole("radio", { name: /Maximum/, checked: true })).toBeTruthy(); // after hardware loads
+  expect(screen.getByLabelText("Username")).toBeTruthy();
+  await signIn();
   connect();
   expect(screen.queryByRole("dialog")).toBeNull(); // already agreed
 });
@@ -104,9 +104,9 @@ it("never shows invented earnings", async () => {
   expect(screen.getByText(/No jobs yet/)).toBeTruthy();
 });
 
-it("reset disconnects, forgets the group and consent, and asks again next time", async () => {
+it("reset disconnects, signs out and clears consent, and asks again next time", async () => {
   renderApp();
-  await startGroup();
+  await signIn();
   connect();
   agree();
   await screen.findByRole("heading", { name: "Connected" });
@@ -115,32 +115,92 @@ it("reset disconnects, forgets the group and consent, and asks again next time",
   fireEvent.click(screen.getByRole("button", { name: "Yes, reset" }));
   fireEvent.click(screen.getByRole("button", { name: "Home" }));
   expect(await screen.findByRole("heading", { name: "Not connected" })).toBeTruthy();
-  expect(await screen.findByText(/Start or join a group below first/)).toBeTruthy(); // group forgotten (reset finishes asynchronously)
-  await startGroup();
+  expect(await screen.findByText(/Sign in below before connecting/)).toBeTruthy(); // invite forgotten
+  await signIn();
   connect();
   expect(screen.getByRole("dialog", { name: "Before you connect" })).toBeTruthy(); // consent asked again
 });
 
-it("won't connect before a group is set up", () => {
+it("will not connect before sign-in", () => {
   renderApp();
   expect((screen.getByRole("button", { name: "Connect" }) as HTMLButtonElement).disabled).toBe(true);
-  expect(screen.getByText(/Start or join a group below first/)).toBeTruthy();
+  expect(screen.queryByLabelText("Invite code")).toBeNull();
 });
 
-it("rejects a malformed join code and accepts a valid one", async () => {
+it("creates an account only when passwords match", async () => {
   renderApp();
-  fireEvent.click(screen.getByRole("button", { name: "Join a group" }));
-  fireEvent.change(screen.getByLabelText(/Group code/), { target: { value: "not-a-code" } });
-  fireEvent.click(screen.getByRole("button", { name: "Join" }));
-  expect((await screen.findByRole("alert")).textContent).toMatch(/doesn't look right/);
-  fireEvent.change(screen.getByLabelText(/Group code/), { target: { value: " GT1-192.168.1.20-0123456789abcdef0123456789abcdef " } });
-  fireEvent.click(screen.getByRole("button", { name: "Join" }));
-  expect(await screen.findByText(/Joined the group led by/)).toBeTruthy();
-  expect(screen.getByText("192.168.1.20")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "New here? Create account" }));
+  fireEvent.change(screen.getByLabelText("Username"), { target: { value: "provider-one" } });
+  fireEvent.change(screen.getByLabelText("Password"), { target: { value: "test-only-password-123" } });
+  fireEvent.change(screen.getByLabelText("Confirm password"), { target: { value: "different-password-123" } });
+  fireEvent.click(screen.getByRole("button", { name: "Create account" }));
+  expect((await screen.findByRole("alert")).textContent).toMatch(/Passwords do not match/);
+  fireEvent.change(screen.getByLabelText("Confirm password"), { target: { value: "test-only-password-123" } });
+  fireEvent.click(screen.getByRole("button", { name: "Create account" }));
+  await screen.findByText("Signed in as provider-one");
+  expect(localStorage.getItem("greentokens.provider.v1")).not.toContain("test-only-password-123");
 });
 
-it("leader sees a shareable code", async () => {
+it("shows a failed login and keeps sharing disabled", async () => {
+  const service = renderApp();
+  service.options.failSignIn = true;
+  fireEvent.change(screen.getByLabelText("Username"), { target: { value: "provider-one" } });
+  fireEvent.change(screen.getByLabelText("Password"), { target: { value: "test-only-password-123" } });
+  fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+  expect((await screen.findByRole("alert")).textContent).toMatch(/Incorrect username or password/);
+  expect((screen.getByRole("button", { name: "Connect" }) as HTMLButtonElement).disabled).toBe(true);
+  expect((screen.getByLabelText("Password") as HTMLInputElement).value).toBe("");
+});
+
+it("sign-out disconnects and leaves preferences intact", async () => {
   renderApp();
-  await startGroup();
-  expect(screen.getByText(/^GT1-192\.168\.1\.10-[0-9a-f]{32}$/)).toBeTruthy();
+  await signIn(); connect(); agree();
+  await screen.findByRole("heading", { name: "Connected" });
+  fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+  await screen.findByRole("button", { name: "Sign in" });
+  expect(screen.getByRole("heading", { name: "Not connected" })).toBeTruthy();
+  expect(JSON.parse(localStorage.getItem("greentokens.provider.v1")!).consent).toBe(true);
+});
+
+it("removes old saved invites and placeholder accounts without reusing credentials", async () => {
+  localStorage.setItem("greentokens.provider.v1", JSON.stringify({ account: { displayName: "old" },
+    invite: { server: "https://old.example", key: "old-private-credential" }, consent: true }));
+  renderApp();
+  expect(await screen.findByLabelText("Username")).toBeTruthy();
+  expect(localStorage.getItem("greentokens.provider.v1")).not.toContain("old-private-credential");
+  expect(JSON.parse(localStorage.getItem("greentokens.provider.v1")!)).not.toHaveProperty("account");
+});
+
+it("keeps a separate stable device identity for each account on this computer", async () => {
+  renderApp();
+  await signIn();
+  const initial = JSON.parse(localStorage.getItem("greentokens.provider.v1")!).accountDevices["account:provider-one"];
+  fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+  await screen.findByRole("button", { name: "Sign in" });
+  fireEvent.change(screen.getByLabelText("Username"), { target: { value: "provider-two" } });
+  fireEvent.change(screen.getByLabelText("Password"), { target: { value: "test-only-password-123" } });
+  fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+  await screen.findByText("Signed in as provider-two");
+  const devices = JSON.parse(localStorage.getItem("greentokens.provider.v1")!).accountDevices;
+  expect(devices["account:provider-two"]).not.toBe(initial);
+  fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+  await screen.findByRole("button", { name: "Sign in" });
+  await signIn();
+  expect(JSON.parse(localStorage.getItem("greentokens.provider.v1")!).accountDevices["account:provider-one"]).toBe(initial);
+});
+
+it("does not start the worker if the owner disconnects while setup is running", async () => {
+  const service = createMockProviderService({ delayMs: 0 });
+  let finish!: () => void;
+  vi.spyOn(service, "prepare").mockImplementation(() => new Promise((resolve) => {
+    finish = () => resolve({ torch: null, gpu: null, gpuReady: false, note: "done" });
+  }));
+  const start = vi.spyOn(service, "start");
+  renderApp(service);
+  await signIn(); connect(); agree();
+  fireEvent.click(screen.getByRole("button", { name: "Disconnect" }));
+  await screen.findByRole("heading", { name: "Not connected" });
+  await act(async () => finish());
+  expect(start).not.toHaveBeenCalled();
+  expect(screen.getByRole("heading", { name: "Not connected" })).toBeTruthy();
 });

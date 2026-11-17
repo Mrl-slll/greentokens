@@ -57,13 +57,15 @@ def summarize(job, result):
         "computer_names": ", ".join(c["host"] for c in computers) or None,
         "accuracy_before": before.get("accuracy"), "accuracy_after": after.get("accuracy"),
         "first_loss": metrics.get("first_loss"), "last_loss": metrics.get("last_loss"),
-        "wall_seconds": metrics.get("wall_seconds"),
+        "wall_seconds": metrics.get("wall_seconds"), "model_name": metrics.get("model"), "device": metrics.get("device"),
+        "gpu": metrics.get("gpu"),
         "model_mb": round(model["size_bytes"] / 1e6, 2) if model else None,
         "model_sha256": model["sha256"] if model else None,
         "result_json": json.dumps(result) if result is not None else None,
     }
     rows = [{"job_id": job["job_id"], "rank": c.get("rank"), "computer": c.get("host"), "os": c.get("os"),
-             "python": c.get("python"), "ray": c.get("ray"), "train_seconds": c.get("train_seconds"),
+             "python": c.get("python"), "ray": c.get("ray"), "gpu": c.get("gpu"), "device": c.get("device"),
+             "train_seconds": c.get("train_seconds"),
              "sync_seconds": c.get("sync_seconds"), "total_seconds": c.get("seconds"),
              "last_loss": c.get("last_loss")} for c in computers]
     return summary, rows

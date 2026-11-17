@@ -22,15 +22,42 @@ static GPU_CACHE: Mutex<Option<f64>> = Mutex::new(None);
 /// When the UI last asked; the GPU thread only works while someone is watching.
 static GPU_WANTED: Mutex<Option<Instant>> = Mutex::new(None);
 
-/// True for a Ray worker process that belongs to this app's runtime (what training jobs run in).
+/// True for a process that runs GreenTokens work from this app's folder: an approved workload package
+/// (`workload.py`, started by the provider worker) or, in older development builds, a Ray worker.
 pub fn is_greentokens_worker(command_line: &str) -> bool {
     let normalized = command_line.replace('\\', "/").to_lowercase();
-    normalized.contains(APP_FOLDER) && normalized.contains("default_worker.py")
+    normalized.contains(APP_FOLDER) && (normalized.contains("/workload.py") || normalized.contains("default_worker.py"))
 }
 
 /// Windows: output of the GPU counter script, a single number such as `37.5`.
 pub fn parse_number(text: &str) -> Option<f64> {
     text.trim().replace(',', ".").parse::<f64>().ok().map(|v| v.clamp(0.0, 100.0))
+}
+
+/// NVIDIA: `nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader,nounits` prints one number per GPU.
+pub fn parse_smi_utilization(text: &str) -> Option<f64> {
+    let values: Vec<f64> = text.lines().filter_map(|l| l.trim().parse::<f64>().ok()).collect();
+    if values.is_empty() {
+        return None;
+    }
+    Some((values.iter().sum::<f64>() / values.len() as f64).clamp(0.0, 100.0))
+}
+
+/// Preferred on NVIDIA computers: includes CUDA compute work (training), which the Windows 3D counter misses.
+#[cfg_attr(target_os = "macos", allow(dead_code))]
+fn read_nvidia_smi() -> Option<f64> {
+    let mut c = std::process::Command::new("nvidia-smi");
+    c.args(["--query-gpu=utilization.gpu", "--format=csv,noheader,nounits"]);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        c.creation_flags(0x0800_0000);
+    }
+    let output = c.output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    parse_smi_utilization(&String::from_utf8_lossy(&output.stdout))
 }
 
 /// macOS: `"Device Utilization %"=12` inside the `PerformanceStatistics` of `ioreg` output.
@@ -45,6 +72,11 @@ pub fn parse_ioreg_gpu(text: &str) -> Option<f64> {
 
 #[cfg(windows)]
 fn read_gpu() -> Option<f64> {
+    read_nvidia_smi().or_else(read_windows_counter)
+}
+
+#[cfg(windows)]
+fn read_windows_counter() -> Option<f64> {
     use std::os::windows::process::CommandExt;
     use std::process::{Command, Stdio};
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -73,7 +105,7 @@ fn read_gpu() -> Option<f64> {
 
 #[cfg(not(any(windows, target_os = "macos")))]
 fn read_gpu() -> Option<f64> {
-    None
+    read_nvidia_smi()
 }
 
 fn ensure_gpu_thread() {
@@ -158,6 +190,9 @@ mod tests {
         assert!(is_greentokens_worker(
             "/Users/a/Library/Application Support/ai.greentokens.provider/runtime/bin/python /Users/a/Library/Application Support/ai.greentokens.provider/runtime/lib/python3.12/site-packages/ray/_private/workers/default_worker.py"
         ));
+        assert!(is_greentokens_worker(
+            r"C:\Users\a\AppData\Local\ai.greentokens.provider\runtime\Scripts\python.exe C:\Users\a\AppData\Local\ai.greentokens.provider\worker\packages\0f3a\workload.py --params p.json --out out"
+        ));
         // Not ours: another Ray install, the app itself, an editor, other Python work.
         assert!(!is_greentokens_worker(r"C:\Python312\python.exe C:\other\ray\_private\workers\default_worker.py"));
         assert!(!is_greentokens_worker(r"C:\Program Files\GreenTokens Provider\greentokens-provider.exe"));
@@ -172,6 +207,16 @@ mod tests {
         assert_eq!(parse_number("250"), Some(100.0)); // summed engines can exceed 100
         assert_eq!(parse_number(""), None);
         assert_eq!(parse_number("Get-Counter : error"), None);
+    }
+
+    #[test]
+    fn averages_nvidia_smi_utilization() {
+        assert_eq!(parse_smi_utilization("87
+13
+"), Some(50.0));
+        assert_eq!(parse_smi_utilization("100"), Some(100.0));
+        assert_eq!(parse_smi_utilization("[N/A]"), None);
+        assert_eq!(parse_smi_utilization(""), None);
     }
 
     #[test]

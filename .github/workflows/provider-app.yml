@@ -15,7 +15,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  RELEASE_TAG: provider-v0.1.0
+  RELEASE_TAG: provider-v0.3.0
   UV_VERSION: "0.13.8"
 
 jobs:
@@ -38,6 +38,11 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: apps/provider_app/src-tauri -> target
+
+      - name: Configure provider server (public address, no credentials)
+        env:
+          GT_PROVIDER_SERVER: ${{ vars.GT_PROVIDER_SERVER }}
+        run: node scripts/configure-server.mjs
 
       - run: npm ci
       - run: npm run typecheck
@@ -117,6 +122,11 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: apps/provider_app/src-tauri -> target
+
+      - name: Configure provider server (public address, no credentials)
+        env:
+          GT_PROVIDER_SERVER: ${{ vars.GT_PROVIDER_SERVER }}
+        run: node scripts/configure-server.mjs
 
       - run: npm ci
       - run: npm run typecheck
@@ -202,27 +212,23 @@ jobs:
           - ⬇️ **[Download for Windows](https://github.com/${GH_REPO}/releases/download/${RELEASE_TAG}/GreenTokens-Provider-Setup.exe)** (Windows 10 or 11)
           - ⬇️ **[Download for Mac](https://github.com/${GH_REPO}/releases/download/${RELEASE_TAG}/GreenTokens-Provider-macOS.dmg)** (macOS 11 or newer, Apple silicon and Intel)
 
-          **GreenTokens Provider**: connect computers on the same home or office network into one computing group, with one button.
+          **GreenTokens Provider**: lend this computer's processor and NVIDIA graphics card to approved GreenTokens training jobs. One download; everything else is set up automatically.
 
-          ### Windows
-          1. Install on each computer. If Windows says *"Windows protected your PC"*, click **More info → Run anyway**.
-          2. Allow the app on your **Private** network when Windows asks (once).
+          ### Install
+          - **Windows:** run the installer. If Windows says *"Windows protected your PC"*, click **More info → Run anyway**.
+          - **Mac:** open the **.dmg**, drag **GreenTokens Provider** into **Applications**, then the first time **right-click → Open → Open** (not notarized yet). If refused: **System Settings → Privacy & Security → Open Anyway**.
 
-          ### Mac
-          1. Open the downloaded **.dmg** and drag **GreenTokens Provider** into **Applications**.
-          2. The first time, **right-click the app → Open → Open** (the app isn't notarized yet, so a normal double-click is blocked). If macOS still refuses, open **System Settings → Privacy & Security**, scroll down and click **Open Anyway**.
-          3. If macOS asks to allow the app to find devices on your local network, choose **Allow**.
+          ### Then (about 1 minute of clicks)
+          1. Click **New here? Create account**, choose a username and a password (12 or more characters), and create your account. Already registered? **Sign in**. No invite code needed.
+          2. Press the **power button** and choose **Yes, set up & connect**. The first time it installs Python and PyTorch (with GPU support on NVIDIA computers, a few GB) inside the app's own folder. Keep the app open.
+          3. That's it. The computer connects to GreenTokens by itself, works on any network, and reconnects after Wi-Fi changes. After reopening the app, sign in and press Connect again. The **Activity** screen shows live processor, memory and GPU use and the current job.
 
-          ### Then, on any computer
-          1. **Computer 1:** **Start a group** → **Copy** the code. **Other computers:** **Join a group** → paste it.
-          2. **Press the power button on each.** The first time, setup downloads about 150 MB.
-
-          > **Preview.** Groups are real Ray clusters on your local network, protected by the code's access token. Only join groups run by people you trust. GreenTokens jobs aren't sent to groups yet. Multi-computer Ray on Windows and Mac is experimental, and mixing Windows with Mac in one group is untested.
+          > **Preview.** The operator's PC and its configured tunnel must remain running. Sessions expire after 24 hours; password recovery is not available yet. Only approved GreenTokens workloads run (no arbitrary code). Jobs use your computer while it is connected; disconnect any time. NVIDIA GPUs need an up-to-date driver (CUDA 12.8 or newer for RTX 50-series).
 
           <sub>Built from ${GITHUB_SHA}.</sub>
           EOF
           gh release delete "$RELEASE_TAG" --yes --cleanup-tag || true
           gh release create "$RELEASE_TAG" out/GreenTokens-Provider-Setup.exe out/GreenTokens-Provider-macOS.dmg \
             --prerelease --target "$GITHUB_SHA" \
-            --title "GreenTokens Provider for Windows and Mac (preview)" \
+            --title "GreenTokens Provider ${RELEASE_TAG#provider-} for Windows and Mac (preview)" \
             --notes-file notes.md

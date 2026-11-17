@@ -42,7 +42,28 @@ class BertTinyParams(StrictModel):
         return self
 
 
+# Approved workloads that independent provider computers run (they ask the API for work; no Ray there).
+PROVIDER_TEMPLATES = {"text_finetune_v1"}
+# Templates allowed to run longer than the 300 s default limit.
+LONG_TEMPLATES = {"bert_tiny_ddp_v1", "text_finetune_v1"}
+APPROVED_TEXT_MODELS = ("prajjwal1/bert-tiny", "prajjwal1/bert-mini", "prajjwal1/bert-small")
+
+
+class TextFinetuneParams(StrictModel):
+    """text_finetune_v1: fine-tune an approved text model for sentiment (SST-2) on ONE provider computer."""
+    model: Literal["prajjwal1/bert-tiny", "prajjwal1/bert-mini", "prajjwal1/bert-small"] = "prajjwal1/bert-mini"
+    examples: int = Field(default=2000, ge=32, le=60000)
+    epochs: int = Field(default=1, ge=1, le=5)
+    batch_size: int = Field(default=32, ge=8, le=256)
+    max_length: int = Field(default=128, ge=16, le=256)
+    eval_examples: int = Field(default=500, ge=16, le=872)
+    learning_rate: float = Field(default=5e-5, gt=0, le=1e-2)
+    require_gpu: bool = False
+
+
 def input_model(template_id):
+    if template_id == "text_finetune_v1":
+        return TextFinetuneParams
     if template_id == "bert_tiny_ddp_v1":
         return BertTinyParams
     return TrainingData if template_id == "linear_regression_v1" else Numbers
@@ -57,11 +78,21 @@ class Requirements(StrictModel):
 
 
 class Submission(StrictModel):
-    template_id: Literal["sum_numbers_v1", "linear_regression_v1", "bert_tiny_ddp_v1"]
-    parameters: Numbers | TrainingData | BertTinyParams | None = None
+    template_id: Literal["sum_numbers_v1", "linear_regression_v1", "bert_tiny_ddp_v1", "text_finetune_v1"]
+    parameters: Numbers | TrainingData | BertTinyParams | TextFinetuneParams | None = None
     input_artifact_id: str | None = Field(default=None, pattern=r"^[0-9a-f-]{36}$")
     requirements: Requirements = Field(default_factory=Requirements)
     idempotency_key: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_.:-]+$")
+
+    @model_validator(mode="before")
+    @classmethod
+    def parameters_follow_template(cls, data):
+        # Parse parameters with the chosen template's own model; several templates accept {} (all defaults),
+        # so the union alone could pick the wrong one.
+        known = ("sum_numbers_v1", "linear_regression_v1", "bert_tiny_ddp_v1", "text_finetune_v1")
+        if isinstance(data, dict) and data.get("template_id") in known and isinstance(data.get("parameters"), dict):
+            data = {**data, "parameters": input_model(data["template_id"]).model_validate(data["parameters"])}
+        return data
 
     @model_validator(mode="after")
     def one_input(self):
@@ -69,6 +100,6 @@ class Submission(StrictModel):
             raise ValueError("Provide exactly one of parameters or input_artifact_id")
         if self.parameters is not None and not isinstance(self.parameters, input_model(self.template_id)):
             raise ValueError("Input does not match selected pipeline")
-        if self.template_id != "bert_tiny_ddp_v1" and self.requirements.max_runtime_seconds > 300:
-            raise ValueError("Only bert_tiny_ddp_v1 may run longer than 300 seconds")
+        if self.template_id not in LONG_TEMPLATES and self.requirements.max_runtime_seconds > 300:
+            raise ValueError("Only training templates may run longer than 300 seconds")
         return self

@@ -9,9 +9,16 @@ use tauri::Manager;
 
 fn main() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![hardware::detect_hardware, agent::agent, usage::live_usage])
+        .invoke_handler(tauri::generate_handler![
+            hardware::detect_hardware,
+            agent::agent,
+            agent::worker_start,
+            agent::worker_stop,
+            agent::worker_state,
+            usage::live_usage
+        ])
         .on_window_event(|window, event| {
-            // Disconnect from the group when the app closes; nothing runs in the background.
+            // Stop sharing when the app closes; nothing keeps running in the background.
             if let tauri::WindowEvent::Destroyed = event {
                 agent::stop_on_exit(window.app_handle());
             }

@@ -1,7 +1,7 @@
 // MOCK ONLY. Nothing here contacts GreenTokens or runs work on this computer.
 // The UI labels every value that comes from this service as "Demo".
 import { ProviderError, type ProviderService, type StartContext } from "./ProviderService";
-import type { Activity, ActivityItem, Preferences } from "../types/provider";
+import type { Activity, ActivityItem, Credentials, Preferences } from "../types/provider";
 
 export interface MockOptions {
   failSignIn: boolean;
@@ -24,6 +24,14 @@ export function createMockProviderService({ delayMs = 700, now = () => Date.now(
   let current: ActivityItem | null = null;
   const history: ActivityItem[] = [];
   const wait = () => new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+  let signedIn = false;
+  async function authenticate(credentials: Credentials) {
+    await wait();
+    if (options.disconnected) throw new ProviderError("We can't reach GreenTokens right now. Check your internet connection and try again.");
+    if (options.failSignIn) throw new ProviderError("Incorrect username or password.");
+    signedIn = true;
+    return { displayName: credentials.username.trim().toLowerCase(), deviceId: credentials.deviceId };
+  }
 
   function newJob(startedAt: number): ActivityItem {
     const n = sequence++;
@@ -46,13 +54,10 @@ export function createMockProviderService({ delayMs = 700, now = () => Date.now(
   return {
     mode: "mock",
     options,
-    async signIn() {
-      await wait();
-      if (options.disconnected) throw new ProviderError("We can't reach GreenTokens right now. Check your internet connection and try again.");
-      if (options.failSignIn) throw new ProviderError("We couldn't sign you in. Please try again.");
-      return { displayName: "Demo provider", deviceId: `demo-${Math.random().toString(36).slice(2, 8)}` };
-    },
+    signIn: authenticate,
+    signUp: authenticate,
     async signOut() {
+      signedIn = false;
       activeSince = null;
       current = null;
       history.length = 0;
@@ -60,11 +65,11 @@ export function createMockProviderService({ delayMs = 700, now = () => Date.now(
     async prepare() {
       await wait();
       if (options.disconnected) throw new ProviderError("We can't reach GreenTokens right now. Check your internet connection and try again.");
-      return { lanIp: "192.168.1.10", firewall: true, networkPrivate: true };
+      return { torch: "demo", gpu: null, gpuReady: false, note: "Demo version: nothing was installed." };
     },
-    async start(preferences: Preferences, context: StartContext) {
+    async start(preferences: Preferences, _context: StartContext) {
       await wait();
-      if (!context.group) throw new ProviderError("First start a group or join one with a code.");
+      if (!signedIn) throw new ProviderError("Sign in before connecting.");
       if (options.disconnected) throw new ProviderError("We can't reach GreenTokens, so your computer stays paused.");
       cpuLimit = preferences.cpuPercent;
       gpuEnabled = preferences.gpuEnabled;

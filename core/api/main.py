@@ -5,11 +5,14 @@ from datetime import timedelta
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
-from core.api.schemas import BERT_CPUS_PER_WORKER, Numbers, TrainingData, Submission, input_model
+from core.api.provider import add_provider_routes
+from core.api.provider_auth import add_auth_routes, session_user
+from core.api.schemas import BERT_CPUS_PER_WORKER, PROVIDER_TEMPLATES, Numbers, TrainingData, Submission, input_model
 from core.artifacts.storage import ArtifactError, Storage
 from core.config import Settings
 from core.database.models import Artifact, Attempt, Job, Organization, Usage, User, Worker, now
@@ -32,6 +35,9 @@ def create_app(settings=None, sessions=None, storage=None):
         _, sessions = database(settings)
     storage = storage or Storage(settings)
     app = FastAPI(title="GreenTokens local development API", version="0.2.0")
+    provider_origins = ["tauri://localhost", "http://tauri.localhost", "https://tauri.localhost", "http://127.0.0.1:1420"]
+    app.add_middleware(CORSMiddleware, allow_origins=provider_origins,
+                       allow_methods=["POST"], allow_headers=["Content-Type", "Authorization"])
 
     @app.middleware("http")
     async def local_only(request, call_next):
@@ -39,6 +45,15 @@ def create_app(settings=None, sessions=None, storage=None):
             return JSONResponse({"detail": "Local development access only"}, status_code=403)
         if proxied(request) and not (request.url.path == "/health" or request.url.path.startswith("/v1/")):
             return JSONResponse({"detail": "Not found"}, status_code=404)
+        if request.url.path.startswith("/v1/provider/auth/"):
+            if request.headers.get("origin") and request.headers["origin"] not in provider_origins:
+                return JSONResponse({"detail": "Origin not allowed"}, status_code=403)
+            body = bytearray()
+            async for chunk in request.stream():
+                body.extend(chunk)
+                if len(body) > 4096:
+                    return JSONResponse({"detail": "Request too large"}, status_code=413)
+            request._body = bytes(body)  # Starlette's cached middleware request replays this bounded body.
         return await call_next(request)
 
     @app.exception_handler(RequestValidationError)
@@ -57,7 +72,12 @@ def create_app(settings=None, sessions=None, storage=None):
         with sessions() as db:
             if auth.startswith("Bearer "):
                 digest = hashlib.sha256(auth[7:].encode()).hexdigest()
-                user = db.get(User, settings.api_keys.get(digest, ""))
+                user = session_user(db, digest)
+                if user is not None:
+                    return user
+                if digest not in getattr(settings, "api_keys", {}) and hasattr(settings, "reload_api_keys"):
+                    settings.reload_api_keys()  # accounts added with scripts/add_account.py work without a restart
+                user = db.get(User, getattr(settings, "api_keys", {}).get(digest, ""))
                 if user is None:
                     raise HTTPException(401, "Invalid API key")
                 return user
@@ -77,11 +97,14 @@ def create_app(settings=None, sessions=None, storage=None):
             raise HTTPException(404, "Not found")
         return item
 
+    add_auth_routes(app, sessions)
+    add_provider_routes(app, sessions, storage, identity)
+
     @app.get("/health")
     def health():
         with sessions() as db:
             db.execute(select(1))
-        return {"status": "ok", "authentication": "development-stub"}
+        return {"status": "ok", "authentication": "development-stub", "provider_auth": "password-v1"}
 
     @app.post("/v1/artifacts", status_code=201)
     async def upload(request: Request, user=Depends(identity)):
@@ -113,6 +136,8 @@ def create_app(settings=None, sessions=None, storage=None):
 
     @app.post("/v1/jobs", status_code=202)
     def submit(body: Submission, user=Depends(identity)):
+        if user.role == "provider":
+            raise HTTPException(403, "Provider keys cannot submit jobs")
         digest = hashlib.sha256(json.dumps(body.model_dump(), sort_keys=True).encode()).hexdigest()
         with sessions.begin() as db:
             # Serialize the organization's submission/quota check across API processes.
@@ -134,13 +159,18 @@ def create_app(settings=None, sessions=None, storage=None):
             workers = db.scalars(select(Worker).where(Worker.trusted.is_(True),
                 Worker.paused.is_(False), Worker.last_seen_at > now() - timedelta(seconds=60),
                 Worker.workload_class == body.requirements.execution_class)).all()
-            if body.template_id == "bert_tiny_ddp_v1":
+            if body.template_id in PROVIDER_TEMPLATES:
+                gpu = body.parameters.require_gpu
+                online = [w for w in workers if w.kind == "provider" and (w.gpu_count > 0 or not gpu)]
+                if not online:
+                    raise HTTPException(422, "No provider computer is online" + (" with a usable GPU" if gpu else ""))
+            elif body.template_id == "bert_tiny_ddp_v1":
                 # One worker per computer: each needs enough CPUs, and enough computers must be online.
                 needed = body.parameters.workers
-                ready = [w for w in workers if w.cpu_cores >= BERT_CPUS_PER_WORKER]
+                ready = [w for w in workers if w.kind == "ray" and w.cpu_cores >= BERT_CPUS_PER_WORKER]
                 if len(ready) < needed:
                     raise HTTPException(422, f"Not enough computers online: {needed} needed, {len(ready)} available")
-            elif not any(w.cpu_cores >= body.requirements.cpu_cores and
+            elif not any(w.kind == "ray" and w.cpu_cores >= body.requirements.cpu_cores and
                          w.ram_gb >= body.requirements.ram_gb for w in workers):
                 raise HTTPException(422, "No eligible trusted worker for requested resources")
             active = db.scalar(select(func.count()).select_from(Job).where(
@@ -202,8 +232,9 @@ def create_app(settings=None, sessions=None, storage=None):
         if user.role != "admin":
             raise HTTPException(403, "Admin only")
         with sessions() as db:
-            return [{"id": w.id, "cpu_cores": w.cpu_cores, "ram_gb": w.ram_gb,
-                     "trusted": w.trusted, "paused": w.paused, "last_seen_at": w.last_seen_at}
+            return [{"id": w.id, "hostname": w.hostname, "kind": w.kind, "cpu_cores": w.cpu_cores, "ram_gb": w.ram_gb,
+                     "gpu_count": w.gpu_count, "gpu_name": w.gpu_name, "trusted": w.trusted, "paused": w.paused,
+                     "last_seen_at": w.last_seen_at}
                     for w in db.scalars(select(Worker))]
 
     @app.get("/v1/usage")

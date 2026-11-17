@@ -14,7 +14,7 @@ import { SettingsScreen } from "./screens/Settings";
 type Screen = "home" | "hardware" | "activity" | "settings";
 
 export default function App({ service, detectHardware = defaultDetectHardware }: { service?: ProviderService; detectHardware?: HardwareDetector }) {
-  // Installed app: real groups. Browser preview and tests: the clearly labeled mock.
+  // Installed app: the real worker (connects outward to GreenTokens). Browser preview and tests: the clearly labeled mock.
   const svc = useMemo(() => service ?? (inDesktopApp() ? createLiveProviderService() : createMockProviderService()), [service]);
   return (
     <ProviderProvider service={svc} detectHardware={detectHardware}>

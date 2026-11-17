@@ -45,6 +45,16 @@ class StatusTests(unittest.TestCase):
 
 
 class ArgsTests(unittest.TestCase):
+    def test_setup_picks_the_newest_pytorch_build_the_driver_can_run(self):
+        self.assertEqual(g.pick_torch(True, "13.2")[:2], ("2.15.0", "cu132"))
+        self.assertEqual(g.pick_torch(True, "13.1")[:2], ("2.14.1", "cu130"))
+        self.assertEqual(g.pick_torch(True, "12.9")[:2], ("2.11.0", "cu128"))  # RTX 50-series minimum
+        version, tag, note = g.pick_torch(True, "12.4")  # driver too old: processor, with an explanation
+        self.assertEqual((version, tag), ("2.15.0", None))
+        self.assertIn("driver is too old", note)
+        self.assertEqual(g.pick_torch(False, None)[1], None)
+        self.assertEqual(g.pick_torch(True, "garbage")[1], None)
+
     def test_node_args_use_a_temp_dir_valid_on_windows_and_mac(self):
         args = g.node_args(2, "192.168.1.20")
         self.assertEqual(args[args.index("--temp-dir") + 1], "/tmp/ray")

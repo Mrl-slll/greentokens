@@ -27,9 +27,12 @@ class Settings:
     max_bytes: int = 65536
     api_keys: dict = field(default_factory=dict, repr=False)  # sha256(key) -> existing user id
 
+    def reload_api_keys(self):
+        self.api_keys = load_api_keys()
+
     @classmethod
     def from_env(cls):
-        # No production authentication provider exists yet: fail closed.
+        # Provider logins exist, but customer dev identities and infrastructure remain development-only.
         if os.environ.get("GT_MODE") != "development":
             raise RuntimeError("Only explicit GT_MODE=development is supported; production is disabled")
         result = cls(

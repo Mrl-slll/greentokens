@@ -4,7 +4,7 @@ from datetime import timedelta
 
 from sqlalchemy import select, text
 
-from core.api.schemas import BERT_CPUS_PER_WORKER
+from core.api.schemas import BERT_CPUS_PER_WORKER, PROVIDER_TEMPLATES
 from core.artifacts.storage import ArtifactError, Storage
 from core.config import Settings
 from core.database.models import Artifact, Attempt, Job, Usage, Worker, now, uid
@@ -12,6 +12,20 @@ from core.database.session import database
 from core.ray_runtime.client import RayJobs
 
 TERMINAL = {"SUCCEEDED", "FAILED", "CANCELLED"}
+PROVIDER_MAX_ATTEMPTS = 3  # a job whose provider disappears is queued again, at most this many times
+
+
+def finish_attempt(db, job, attempt, status, error=None):
+    """Mark a job and its attempt finished (shared by the Ray path and the provider API)."""
+    if job.status in TERMINAL:
+        return
+    job.status, job.error_code = status, error
+    attempt.status, attempt.error_code = status, error
+    attempt.finished_at = now()
+    attempt.exit_code = 0 if status == "SUCCEEDED" else 1
+    if not db.scalar(select(Usage).where(Usage.job_attempt_id == attempt.id)):
+        elapsed = max(0, (attempt.finished_at - (attempt.started_at or attempt.created_at)).total_seconds())
+        db.add(Usage(job_attempt_id=attempt.id, wall_seconds=elapsed, billable=False))
 
 
 class Dispatcher:
@@ -21,14 +35,16 @@ class Dispatcher:
     def claim(self):
         with self.sessions.begin() as db:
             # One in-flight job in this initial local runtime; resource admission remains simple.
-            if db.scalar(select(Job.id).where(Job.status.in_(["DISPATCHING", "RUNNING"]))):
+            # Provider jobs are picked up by the providers themselves (core/api/provider.py), not dispatched here.
+            ray_jobs = Job.template_id.not_in(PROVIDER_TEMPLATES)
+            if db.scalar(select(Job.id).where(Job.status.in_(["DISPATCHING", "RUNNING"]), ray_jobs)):
                 return
-            job = db.scalar(select(Job).where(Job.status == "QUEUED").order_by(Job.created_at)
+            job = db.scalar(select(Job).where(Job.status == "QUEUED", ray_jobs).order_by(Job.created_at)
                             .with_for_update(skip_locked=True).limit(1))
             if not job:
                 return
             workers = db.scalars(select(Worker).where(Worker.trusted.is_(True), Worker.paused.is_(False),
-                Worker.last_seen_at > now() - timedelta(seconds=60))).all()
+                Worker.kind == "ray", Worker.last_seen_at > now() - timedelta(seconds=60))).all()
             if job.template_id == "bert_tiny_ddp_v1":
                 ready = [w for w in workers if w.cpu_cores >= BERT_CPUS_PER_WORKER and
                          w.workload_class == job.requirements["execution_class"]]
@@ -45,17 +61,34 @@ class Dispatcher:
             job.status = "DISPATCHING"
 
     def finish(self, db, job, attempt, status, error=None):
-        if job.status in TERMINAL:
-            return
-        job.status, job.error_code = status, error
-        attempt.status, attempt.error_code = status, error
-        attempt.finished_at = now()
-        attempt.exit_code = 0 if status == "SUCCEEDED" else 1
-        if not db.scalar(select(Usage).where(Usage.job_attempt_id == attempt.id)):
-            elapsed = max(0, (attempt.finished_at - (attempt.started_at or attempt.created_at)).total_seconds())
-            db.add(Usage(job_attempt_id=attempt.id, wall_seconds=elapsed, billable=False))
+        finish_attempt(db, job, attempt, status, error)
+
+    def reconcile_provider(self, attempt_id):
+        """A provider attempt whose lease lapsed: the provider is lost. Queue the job again (or fail it)."""
+        with self.sessions.begin() as db:
+            attempt = db.get(Attempt, attempt_id)
+            job = db.scalar(select(Job).where(Job.id == attempt.job_id).with_for_update())
+            if attempt.status != "RUNNING" or attempt.lease_expires_at is None or attempt.lease_expires_at > now():
+                return
+            if job.cancel_requested:
+                finish_attempt(db, job, attempt, "CANCELLED")
+                return
+            if attempt.attempt_number >= PROVIDER_MAX_ATTEMPTS:
+                finish_attempt(db, job, attempt, "FAILED", "PROVIDER_LOST")
+                return
+            attempt.status, attempt.error_code, attempt.finished_at, attempt.exit_code = "FAILED", "PROVIDER_LOST", now(), 1
+            job.status, job.error_code = "QUEUED", None  # another provider can take it
 
     def reconcile(self, attempt_id):
+        with self.sessions() as db:
+            attempt = db.get(Attempt, attempt_id)
+            if attempt.ray_submission_id.startswith("prov-"):
+                provider_attempt = True
+            else:
+                provider_attempt = False
+        if provider_attempt:
+            self.reconcile_provider(attempt_id)
+            return
         with self.sessions() as db:
             attempt = db.get(Attempt, attempt_id)
             job = db.get(Job, attempt.job_id)
