@@ -54,9 +54,13 @@ jobs:
           workspaces: apps/provider_app/src-tauri -> target
 
       - name: Configure provider server (public address, no credentials)
+        shell: bash
         env:
           GT_PROVIDER_SERVER: ${{ vars.GT_PROVIDER_SERVER }}
-        run: node scripts/configure-server.mjs
+        run: |
+          # The one-time PC-hosted preview uses the address committed with this tag.
+          if [[ "$GITHUB_REF" == refs/tags/provider-v0.3.1 ]]; then unset GT_PROVIDER_SERVER; fi
+          node scripts/configure-server.mjs
 
       - run: npm ci
       - run: npm run typecheck
@@ -147,9 +151,12 @@ jobs:
           workspaces: apps/provider_app/src-tauri -> target
 
       - name: Configure provider server (public address, no credentials)
+        shell: bash
         env:
           GT_PROVIDER_SERVER: ${{ vars.GT_PROVIDER_SERVER }}
-        run: node scripts/configure-server.mjs
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/provider-v0.3.1 ]]; then unset GT_PROVIDER_SERVER; fi
+          node scripts/configure-server.mjs
 
       - run: npm ci
       - run: npm run typecheck
