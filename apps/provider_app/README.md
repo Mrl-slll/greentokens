@@ -2,7 +2,7 @@
 
 Install the desktop app, **create an account or sign in**, then press **Connect** and approve setup. No invite or group code is needed. The installed app runs approved jobs through an outbound connection to the operator's server. The browser preview is explicitly simulated.
 
-See [the owner guide](../../docs/provider-guide.md) and [operator checklist](../../docs/operator-checklist.md). Version 0.3.0 is published as an unsigned preview. See [Windows distribution](../../docs/windows-distribution.md) for the signed-release requirements.
+See [the owner guide](../../docs/provider-guide.md) and [operator checklist](../../docs/operator-checklist.md). Version 0.3.1 is prepared as an unsigned test release. See [Windows distribution](../../docs/windows-distribution.md) for the signed-release requirements.
 
 ## Develop
 
@@ -41,4 +41,4 @@ A changing quick-tunnel address requires rebuilding the installer. Keep the tunn
 
 ## Build and release
 
-`.github/workflows/provider-app.yml` tests and builds Windows/Mac installers. Public publishing now runs only for version tags `provider-v*`, after both platforms succeed and Windows signing is verified. Branch builds remain development artifacts. No commit, push or release is required to run the local tests. Password recovery and persistent keychain sign-in are future work.
+`.github/workflows/provider-app.yml` tests and builds Windows/Mac installers. Tag `provider-v0.3.1` publishes an explicitly labeled unsigned preview after both platform builds and checksum checks succeed. Other `provider-v*` tags still require verified Windows signing. Branch builds remain development artifacts. No commit, push or release is required to run local tests. Password recovery and persistent keychain sign-in are future work.

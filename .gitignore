@@ -9,5 +9,8 @@ __pycache__/
 *.py[cod]
 .tools/
 
+# A separate local checkout; the outer repository must not track it as a submodule.
+/greentokens/
+
 # Generated public signing metadata. No private signing material belongs here.
 apps/provider_app/src-tauri/tauri.signing.conf.json

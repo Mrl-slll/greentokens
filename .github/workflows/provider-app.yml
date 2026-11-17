@@ -10,6 +10,7 @@ on:
       - "apps/provider_app/**"
       - ".github/workflows/provider-app.yml"
       - ".github/provider-release-notes.md"
+      - ".github/provider-preview-release-notes.md"
   workflow_dispatch:
 
 permissions:
@@ -21,11 +22,14 @@ concurrency:
 
 env:
   UV_VERSION: "0.13.8"
+  # This one test release is allowed without an Azure-verified signing identity.
+  # Future provider-v* tags still require the signed release path.
+  UNSIGNED_PREVIEW_TAG: "provider-v0.3.1"
 
 jobs:
   windows:
-    runs-on: ${{ startsWith(github.ref, 'refs/tags/provider-v') && fromJSON(vars.WINDOWS_SIGNING_RUNNER || '"windows-latest"') || 'windows-latest' }}
-    environment: ${{ startsWith(github.ref, 'refs/tags/provider-v') && 'provider-signing' || 'provider-build' }}
+    runs-on: ${{ startsWith(github.ref, 'refs/tags/provider-v') && github.ref_name != 'provider-v0.3.1' && fromJSON(vars.WINDOWS_SIGNING_RUNNER || '"windows-latest"') || 'windows-latest' }}
+    environment: ${{ startsWith(github.ref, 'refs/tags/provider-v') && github.ref_name != 'provider-v0.3.1' && 'provider-signing' || 'provider-build' }}
     env:
       GT_WINDOWS_CERT_THUMBPRINT: ${{ vars.WINDOWS_CERT_THUMBPRINT }}
       GT_WINDOWS_PUBLISHER: ${{ vars.WINDOWS_PUBLISHER }}
@@ -87,7 +91,7 @@ jobs:
           fi
           exit $code
       - name: Require and configure release signing
-        if: startsWith(github.ref, 'refs/tags/provider-v')
+        if: startsWith(github.ref, 'refs/tags/provider-v') && github.ref_name != 'provider-v0.3.1'
         shell: pwsh
         run: ./scripts/configure-signing.ps1
       - name: Build installer
@@ -95,7 +99,7 @@ jobs:
         run: |
           set +e
           signing_args=()
-          if [[ "$GITHUB_REF" == refs/tags/provider-v* ]]; then
+          if [[ "$GITHUB_REF" == refs/tags/provider-v* && "$GITHUB_REF_NAME" != "$UNSIGNED_PREVIEW_TAG" ]]; then
             signing_args=(--config src-tauri/tauri.signing.conf.json)
           fi
           npm run tauri build -- "${signing_args[@]}" 2>&1 | tee build.log

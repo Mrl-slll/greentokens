@@ -164,7 +164,7 @@ python -c "import torch; print('MPS available:', torch.backends.mps.is_available
 
 ## 7. Provider app (both computers)
 
-Download it from the [release page](https://github.com/Mrl-slll/greentokens/releases/tag/provider-v0.3.0) (Windows `.exe`, Mac `.dmg`). Its source code is on the `provider-app` branch.
+Download it from the [0.3.1 unsigned preview release page](https://github.com/Mrl-slll/greentokens/releases/tag/provider-v0.3.1) (Windows `.exe`, Mac `.dmg`) after the release is published. Its source code is on the `feat/bert-training-and-live-usage` branch.
 
 ## Troubleshooting
 
