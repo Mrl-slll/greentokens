@@ -30,7 +30,7 @@ export function createProviderAuth(server = __PROVIDER_SERVER__, request: typeof
       if (!response.ok) {
         const messages: Record<number, string> = {
           401: "Incorrect username or password.", 409: "That username is unavailable. Choose another or sign in.",
-          422: "Use a 3-32 character username (letters, numbers, underscores or dashes) and a 12-128 character password.",
+          422: "Use a 3-32 character username (letters, numbers, underscores or dashes) and enter a password.",
           429: "Too many attempts. Please wait and try again.",
         };
         throw new ProviderError(messages[response.status] ?? "GreenTokens could not complete sign-in. Please try again.");

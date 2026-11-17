@@ -2,30 +2,40 @@ name: Provider app (Windows + Mac installers)
 
 on:
   push:
+    branches:
+      - "**"
+    tags:
+      - "provider-v*"
     paths:
       - "apps/provider_app/**"
       - ".github/workflows/provider-app.yml"
+      - ".github/provider-release-notes.md"
   workflow_dispatch:
 
 permissions:
-  contents: write # only used by the release job to publish the installers
+  contents: read
 
 concurrency:
   group: provider-app-${{ github.ref }}
   cancel-in-progress: true
 
 env:
-  RELEASE_TAG: provider-v0.3.0
   UV_VERSION: "0.13.8"
 
 jobs:
   windows:
-    runs-on: windows-latest
+    runs-on: ${{ startsWith(github.ref, 'refs/tags/provider-v') && fromJSON(vars.WINDOWS_SIGNING_RUNNER || '"windows-latest"') || 'windows-latest' }}
+    environment: ${{ startsWith(github.ref, 'refs/tags/provider-v') && 'provider-signing' || 'provider-build' }}
+    env:
+      GT_WINDOWS_CERT_THUMBPRINT: ${{ vars.WINDOWS_CERT_THUMBPRINT }}
+      GT_WINDOWS_PUBLISHER: ${{ vars.WINDOWS_PUBLISHER }}
     defaults:
       run:
         working-directory: apps/provider_app
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@v4
         with:
@@ -76,11 +86,19 @@ jobs:
             tail -n 25 ../rust-test.log | while IFS= read -r line; do echo "::error::tail: ${line:0:400}"; done
           fi
           exit $code
+      - name: Require and configure release signing
+        if: startsWith(github.ref, 'refs/tags/provider-v')
+        shell: pwsh
+        run: ./scripts/configure-signing.ps1
       - name: Build installer
         shell: bash
         run: |
           set +e
-          npm run tauri build 2>&1 | tee build.log
+          signing_args=()
+          if [[ "$GITHUB_REF" == refs/tags/provider-v* ]]; then
+            signing_args=(--config src-tauri/tauri.signing.conf.json)
+          fi
+          npm run tauri build -- "${signing_args[@]}" 2>&1 | tee build.log
           code=${PIPESTATUS[0]}
           if [ "$code" -ne 0 ]; then
             # Surface the failure as annotations so it is readable without opening the raw log.
@@ -88,17 +106,16 @@ jobs:
             tail -n 25 build.log | while IFS= read -r line; do echo "::error::tail: ${line:0:400}"; done
           fi
           exit "$code"
-      - name: Collect installer
-        shell: bash
-        run: |
-          mkdir -p out
-          exe=$(ls src-tauri/target/release/bundle/nsis/*.exe | head -1)
-          cp "$exe" out/GreenTokens-Provider-Setup.exe
-          ls -l out
+      - name: Verify signatures and collect exactly one installer
+        shell: pwsh
+        run: ./scripts/collect-windows.ps1
       - uses: actions/upload-artifact@v4
         with:
           name: provider-windows
-          path: apps/provider_app/out/GreenTokens-Provider-Setup.exe
+          if-no-files-found: error
+          path: |
+            apps/provider_app/out/GreenTokens-Provider-Setup.exe
+            apps/provider_app/out/Windows-SHA256SUMS.txt
 
   macos:
     runs-on: macos-latest
@@ -107,6 +124,8 @@ jobs:
         working-directory: apps/provider_app
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@v4
         with:
@@ -178,7 +197,10 @@ jobs:
       - name: Collect disk image
         run: |
           mkdir -p out
-          dmg=$(ls src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg | head -1)
+          set -euo pipefail
+          images=(src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg)
+          test "${#images[@]}" -eq 1 && test -f "${images[0]}"
+          dmg="${images[0]}"
           cp "$dmg" out/GreenTokens-Provider-macOS.dmg
           ls -l out
           # Confirm the bundled tools survived packaging.
@@ -190,45 +212,30 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: provider-macos
+          if-no-files-found: error
           path: apps/provider_app/out/GreenTokens-Provider-macOS.dmg
 
   release:
     needs: [windows, macos]
-    if: github.ref == 'refs/heads/provider-app' || github.ref == 'refs/heads/main'
+    if: startsWith(github.ref, 'refs/tags/provider-v')
     runs-on: ubuntu-latest
+    environment: provider-release
+    permissions:
+      contents: write
     steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/download-artifact@v4
         with:
           path: out
           merge-multiple: true
-      - name: Publish public download
+      - name: Prepare checksums and release instructions
+        env:
+          WINDOWS_PUBLISHER: ${{ vars.WINDOWS_PUBLISHER }}
+        run: python apps/provider_app/scripts/publish-release.py prepare
+      - name: Publish verified draft
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
-        run: |
-          ls -l out
-          cat > notes.md <<EOF
-          # Download
-          - ⬇️ **[Download for Windows](https://github.com/${GH_REPO}/releases/download/${RELEASE_TAG}/GreenTokens-Provider-Setup.exe)** (Windows 10 or 11)
-          - ⬇️ **[Download for Mac](https://github.com/${GH_REPO}/releases/download/${RELEASE_TAG}/GreenTokens-Provider-macOS.dmg)** (macOS 11 or newer, Apple silicon and Intel)
-
-          **GreenTokens Provider**: lend this computer's processor and NVIDIA graphics card to approved GreenTokens training jobs. One download; everything else is set up automatically.
-
-          ### Install
-          - **Windows:** run the installer. If Windows says *"Windows protected your PC"*, click **More info → Run anyway**.
-          - **Mac:** open the **.dmg**, drag **GreenTokens Provider** into **Applications**, then the first time **right-click → Open → Open** (not notarized yet). If refused: **System Settings → Privacy & Security → Open Anyway**.
-
-          ### Then (about 1 minute of clicks)
-          1. Click **New here? Create account**, choose a username and a password (12 or more characters), and create your account. Already registered? **Sign in**. No invite code needed.
-          2. Press the **power button** and choose **Yes, set up & connect**. The first time it installs Python and PyTorch (with GPU support on NVIDIA computers, a few GB) inside the app's own folder. Keep the app open.
-          3. That's it. The computer connects to GreenTokens by itself, works on any network, and reconnects after Wi-Fi changes. After reopening the app, sign in and press Connect again. The **Activity** screen shows live processor, memory and GPU use and the current job.
-
-          > **Preview.** The operator's PC and its configured tunnel must remain running. Sessions expire after 24 hours; password recovery is not available yet. Only approved GreenTokens workloads run (no arbitrary code). Jobs use your computer while it is connected; disconnect any time. NVIDIA GPUs need an up-to-date driver (CUDA 12.8 or newer for RTX 50-series).
-
-          <sub>Built from ${GITHUB_SHA}.</sub>
-          EOF
-          gh release delete "$RELEASE_TAG" --yes --cleanup-tag || true
-          gh release create "$RELEASE_TAG" out/GreenTokens-Provider-Setup.exe out/GreenTokens-Provider-macOS.dmg \
-            --prerelease --target "$GITHUB_SHA" \
-            --title "GreenTokens Provider ${RELEASE_TAG#provider-} for Windows and Mac (preview)" \
-            --notes-file notes.md
+        run: python apps/provider_app/scripts/publish-release.py publish

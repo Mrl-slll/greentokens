@@ -49,6 +49,7 @@ function Shell() {
         </nav>
         <p className="hidden px-5 py-4 text-sm text-slate-600 md:block">
           Status: <strong>{participation === "active" ? "Connected" : participation === "paused" ? "Not connected" : participation === "starting" ? "Connecting…" : "Disconnecting…"}</strong>
+          <span className="mt-1 block text-xs text-slate-400">Version {__APP_VERSION__}</span>
         </p>
       </aside>
       <div className="flex-1">

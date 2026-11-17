@@ -57,3 +57,24 @@ it("explains wrong passwords, duplicate usernames and throttling without saving 
     expect(() => auth.connection()).toThrow(/sign in/);
   }
 });
+
+it("Create account never does nothing: problems show a message, and any password is accepted", async () => {
+  const { createElement } = await import("react");
+  const { cleanup, fireEvent, render, screen } = await import("@testing-library/react");
+  const { default: App } = await import("../src/App");
+  const { createMockProviderService } = await import("../src/services/mockProviderService");
+  localStorage.clear();
+  const detect = async () => ({ status: "ok" as const, hardware: { cpuModel: "x", cores: 4, threads: 8, ramGb: 8, gpus: [], os: "Windows", hostname: "PC" } });
+  render(createElement(App, { service: createMockProviderService({ delayMs: 0 }), detectHardware: detect }));
+  fireEvent.click(screen.getByRole("button", { name: "New here? Create account" }));
+  fireEvent.click(screen.getByRole("button", { name: "Create account" }));
+  expect((await screen.findByRole("alert")).textContent).toMatch(/Username/);
+  fireEvent.change(screen.getByLabelText("Username"), { target: { value: "rtx-pc-1" } });
+  fireEvent.click(screen.getByRole("button", { name: "Create account" }));
+  expect((await screen.findByRole("alert")).textContent).toMatch(/Enter a password/);
+  fireEvent.change(screen.getByLabelText("Password"), { target: { value: "a" } }); // one character: allowed
+  fireEvent.change(screen.getByLabelText("Confirm password"), { target: { value: "a" } });
+  fireEvent.click(screen.getByRole("button", { name: "Create account" }));
+  expect(await screen.findByText(/Signed in as/)).toBeTruthy();
+  cleanup();
+});

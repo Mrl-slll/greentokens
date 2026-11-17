@@ -8,3 +8,6 @@ next-env.d.ts
 __pycache__/
 *.py[cod]
 .tools/
+
+# Generated public signing metadata. No private signing material belongs here.
+apps/provider_app/src-tauri/tauri.signing.conf.json

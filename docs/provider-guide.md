@@ -3,16 +3,20 @@
 You lend this computer's processor and NVIDIA graphics card to approved GreenTokens training jobs.
 You need **one download**. Create your own provider account in the app; no invite code is needed.
 
-## 1. Install (2 minutes)
-- **Windows 10/11:** download **GreenTokens-Provider-Setup.exe** from the release page the operator sends you and run it.
-  If Windows shows *"Windows protected your PC"*, click **More info → Run anyway** (the app isn't code-signed yet).
-- **Mac:** download **GreenTokens-Provider-macOS.dmg**, drag the app into **Applications**, then the first time
-  **right-click → Open → Open**.
-- **Linux:** not available as an installer yet.
+## 1. Install
+Use the [official Releases page](https://github.com/Mrl-slll/greentokens/releases). Current release: **0.3.0 preview**, publisher label **GreenTokens**, **unsigned** on Windows. The label is not a verified certificate identity. A signed public release is pending signing-account setup.
+
+- [Windows x64 download (0.3.0 preview)](https://github.com/Mrl-slll/greentokens/releases/download/provider-v0.3.0/GreenTokens-Provider-Setup.exe): Windows 10/11 x64. Review the release's signing status before installation. If Windows or Edge blocks it, stop and follow the troubleshooting guidance; do not disable protection or override organizational policy.
+- Mac: download the `.dmg` from the same release. This preview is not notarized; if blocked, contact the operator.
+- Linux: no installer yet.
+
+Verify the Windows file with `Get-FileHash "$HOME\Downloads\GreenTokens-Provider-Setup.exe" -Algorithm SHA256` and compare all characters with the release's SHA-256 information. The checksum establishes matching bytes, not safety. Future signed releases must also show the verified publisher under Properties ? Digital Signatures.
+
+For **Couldn't download**, open Edge Downloads (Ctrl+J) for the exact error. For a detection, check Windows Security ? Protection history and send the version/hash/detection name to the maintainer. Organization-managed blocks require the administrator's approval.
 
 ## 2. Connect (1 minute of clicks)
 1. Open **GreenTokens Provider**.
-2. Click **New here? Create account**. Choose a username and a password of 12-128 characters, confirm the password, then click **Create account**. If you already have an account, **Sign in**. You can use the same account on your other computers.
+2. Click **New here? Create account**. Choose a username and any password, confirm the password, then click **Create account**. If you already have an account, **Sign in**. You can use the same account on your other computers.
 3. Press the big **power button** and choose **Yes, set up & connect**.
    - The first time, the app installs Python and PyTorch **inside its own folder**: a few GB on NVIDIA computers,
      about 10–20 minutes. Keep the app open.

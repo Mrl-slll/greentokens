@@ -100,12 +100,17 @@ class ProviderAuthTests(unittest.TestCase):
             self.assertEqual(db.scalar(select(func.count()).select_from(Organization)), before)
 
     def test_invalid_body_does_not_echo_password_and_no_role_escalation(self):
-        for changes in ({"password": "short"}, {"password": "x" * 129}, {"role": "admin"}, {"username": "bad@name"}):
+        for changes in ({"password": ""}, {"password": "x" * 1025}, {"role": "admin"}, {"username": "bad@name"}):
             response = self.client.post("/v1/provider/auth/signup", json={**self.credentials, **changes})
             self.assertEqual(response.status_code, 422)
             self.assertNotIn("password", response.text.lower())
         response = self.client.post("/v1/provider/auth/signup", content=b"x" * 4097, headers={"Content-Type": "application/json"})
         self.assertEqual(response.status_code, 413)
+
+    def test_any_password_style_or_length_is_accepted(self):
+        for i, password in enumerate(("a", "1234", "no rules at all!", "é" * 40)):
+            body = {**self.credentials, "username": f"anypw{i}", "password": password}
+            self.assertLess(self.client.post("/v1/provider/auth/signup", json=body).status_code, 300, password)
 
     def test_tunnel_cors_and_untrusted_origin(self):
         headers = {"Origin": "http://tauri.localhost", "CF-Connecting-IP": "203.0.113.2"}

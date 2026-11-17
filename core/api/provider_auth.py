@@ -31,8 +31,10 @@ class Credentials(StrictModel):
     @field_validator("password")
     @classmethod
     def password_length(cls, value):
-        if not 12 <= len(value.get_secret_value()) <= 128:
-            raise ValueError("Password must be 12-128 characters")
+        # No length or style rules (owner's choice). Only: not empty, and a high technical ceiling so a
+        # huge password can't tie up the server's password hashing.
+        if not 1 <= len(value.get_secret_value()) <= 1024:
+            raise ValueError("Enter a password")
         return value
 
 
