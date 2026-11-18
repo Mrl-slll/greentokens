@@ -21,6 +21,20 @@ def digest(name):
     return hashlib.sha256(data).hexdigest(), len(data)
 
 
+def draft_for_tag(repo, tag, title):
+    # GitHub's /releases/tags/{tag} endpoint does not resolve unpublished drafts.
+    # The authenticated releases list includes them, even when their URL is untagged-*.
+    releases = json.loads(gh('api', f'repos/{repo}/releases?per_page=100', capture=True))
+    matches = [release for release in releases
+               if release.get('tag_name') == tag or
+               (release.get('draft') and release.get('name') == title)]
+    if len(matches) > 1:
+        raise RuntimeError('Multiple releases match this tag; review them manually')
+    if matches and not matches[0]['draft']:
+        raise RuntimeError('Release is already published; refusing to replace assets')
+    return matches[0] if matches else None
+
+
 def main():
     tag = os.environ['GITHUB_REF_NAME']
     version = json.loads(Path('apps/provider_app/package.json').read_text())['version']
@@ -45,14 +59,24 @@ def main():
         return
     if sys.argv[1] != 'publish':
         raise RuntimeError('Unknown action')
-    # No delete, --clobber, tag rewrite, or replacement of published assets.
-    # An existing draft after a failure is preserved for operator review.
-    gh('release', 'create', tag, '--verify-tag', '--draft', '--prerelease',
-       '--title', f'GreenTokens Provider {version} ({"unsigned preview" if unsigned_preview else "signed"})',
-       '--notes-file', 'notes.md')
+    # Retry safely after an interrupted upload. Never replace published assets.
+    repo = os.environ['GITHUB_REPOSITORY']
+    title = f'GreenTokens Provider {version} ({"unsigned preview" if unsigned_preview else "signed"})'
+    release = draft_for_tag(repo, tag, title)
+    if release is None:
+        gh('release', 'create', tag, '--verify-tag', '--draft', '--prerelease',
+           '--title', title, '--notes-file', 'notes.md')
+        release = draft_for_tag(repo, tag, title)
+        if release is None:
+            raise RuntimeError('Created draft release was not found')
     names = (*NAMES, 'SHA256SUMS.txt')
-    gh('release', 'upload', tag, *(str(Path('out') / name) for name in names))
-    release = json.loads(gh('api', f'repos/{os.environ["GITHUB_REPOSITORY"]}/releases/tags/{tag}', capture=True))
+    existing = {asset['name'] for asset in release['assets']}
+    missing = [name for name in names if name not in existing]
+    if missing:
+        gh('release', 'upload', tag, *(str(Path('out') / name) for name in missing))
+        release = draft_for_tag(repo, tag, title)
+        if release is None:
+            raise RuntimeError('Draft release disappeared after upload')
     assets = {a['name']: a for a in release['assets']}
     if not release['draft'] or set(assets) != set(names):
         raise RuntimeError('Incomplete draft release')
@@ -60,7 +84,10 @@ def main():
         expected, size = digest(name)
         if assets[name]['size'] != size or assets[name].get('digest') != 'sha256:' + expected:
             raise RuntimeError('Uploaded release checksum mismatch; draft remains unpublished')
-    gh('release', 'edit', tag, '--draft=false', '--prerelease')
+    published = json.loads(gh('api', '-X', 'PATCH', f'repos/{repo}/releases/{release["id"]}',
+                              '-F', 'draft=false', '-F', 'prerelease=true', capture=True))
+    if published.get('draft') or published.get('tag_name') != tag:
+        raise RuntimeError('Release publication was not confirmed')
 
 
 if __name__ == '__main__':
