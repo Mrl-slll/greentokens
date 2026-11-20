@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "model": {
+    "repo_id": "prajjwal1/bert-tiny",
+    "revision": "6f75de8b60a9f8a2fdf7b69cbd86d9e64bcb3837",
+    "license_metadata": "mit"
+  },
+  "dataset": {
+    "repo_id": "stanfordnlp/sst2",
+    "revision": "8d51e7e4887a4caaa95b3fbebbf53c0490b58bbb",
+    "license_metadata": "unknown"
+  },
+  "files": [
+    {
+      "kind": "model",
+      "path": "model/README.md",
+      "url": "https://huggingface.co/prajjwal1/bert-tiny/resolve/6f75de8b60a9f8a2fdf7b69cbd86d9e64bcb3837/README.md",
+      "size": 2560,
+      "sha256": "55ce99eb2a82b118fe74158365804de22c6909b723135d85dec7f4d9e8518c38",
+      "tracked_in_git": true
+    },
+    {
+      "kind": "model",
+      "path": "model/config.json",
+      "url": "https://huggingface.co/prajjwal1/bert-tiny/resolve/6f75de8b60a9f8a2fdf7b69cbd86d9e64bcb3837/config.json",
+      "size": 285,
+      "sha256": "cf3179684f7c360dd6185962d480e7d426ceb8fe49f5db7b64bdc15dba0b8798",
+      "tracked_in_git": true
+    },
+    {
+      "kind": "model",
+      "path": "model/pytorch_model.bin",
+      "url": "https://huggingface.co/prajjwal1/bert-tiny/resolve/6f75de8b60a9f8a2fdf7b69cbd86d9e64bcb3837/pytorch_model.bin",
+      "size": 17756393,
+      "sha256": "dab2c2bddcfb48ea430ef63fd76d46d67d704487844d967256a50dd7d7fd0a66",
+      "tracked_in_git": true
+    },
+    {
+      "kind": "model",
+      "path": "model/vocab.txt",
+      "url": "https://huggingface.co/prajjwal1/bert-tiny/resolve/6f75de8b60a9f8a2fdf7b69cbd86d9e64bcb3837/vocab.txt",
+      "size": 231508,
+      "sha256": "07eced375cec144d27c900241f3e339478dec958f92fddbc551f295c992038a3",
+      "tracked_in_git": true
+    },
+    {
+      "kind": "dataset",
+      "path": "dataset/test-00000-of-00001.parquet",
+      "url": "https://huggingface.co/datasets/stanfordnlp/sst2/resolve/8d51e7e4887a4caaa95b3fbebbf53c0490b58bbb/data/test-00000-of-00001.parquet",
+      "size": 147787,
+      "sha256": "20d27a86c0c59acb746a41a481ebb1fc71edb72d94b5ccee7f23b9041b17adcf",
+      "tracked_in_git": false
+    },
+    {
+      "kind": "dataset",
+      "path": "dataset/train-00000-of-00001.parquet",
+      "url": "https://huggingface.co/datasets/stanfordnlp/sst2/resolve/8d51e7e4887a4caaa95b3fbebbf53c0490b58bbb/data/train-00000-of-00001.parquet",
+      "size": 3110458,
+      "sha256": "c7921283b75a42e685f50edecb96798607ea0fcbfd0739ee8975f22c12d55f09",
+      "tracked_in_git": false
+    },
+    {
+      "kind": "dataset",
+      "path": "dataset/validation-00000-of-00001.parquet",
+      "url": "https://huggingface.co/datasets/stanfordnlp/sst2/resolve/8d51e7e4887a4caaa95b3fbebbf53c0490b58bbb/data/validation-00000-of-00001.parquet",
+      "size": 72813,
+      "sha256": "fb00fe008f6828f86ba2beda8415a4cf5da0c884f21c5f238c87131b5aa19529",
+      "tracked_in_git": false
+    }
+  ]
+}

@@ -7,8 +7,8 @@ Intel/AMD Windows 电脑。后续训练实验目标是三台真实电脑，区�
 该示例尚未接入客户页面、`POST /v1/jobs`、MySQL 或 S3；现有 API 仍只支持 `sum_numbers_v1`。
 
 这是单机基线脚本，不是已经完成的三机分布式训练。脚本强制使用 CPU，
-包括在 Apple Silicon Mac 上禁用对 MPS 的自动选择。仅进行了语法和 CLI 检查，
-尚未在你的硬件上安装依赖、下载模型或运行训练。
+包括在 Apple Silicon Mac 上禁用对 MPS 的自动选择。已下载并校验模型与数据文件，完成语法、CLI 与下载器检查。
+尚未安装训练依赖或实际运行模型微调；不能视为训练成功。
 
 ## 1. 下载文件并安装
 
@@ -25,6 +25,7 @@ python3.11 -m venv .venv
 .venv/bin/python -m pip install --upgrade pip
 .venv/bin/python -m pip install 'torch>=2.6,<3'
 .venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python download_assets.py
 .venv/bin/python train_bert_tiny.py
 ```
 
@@ -39,11 +40,15 @@ py -3.11 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install --upgrade pip
 .\.venv\Scripts\python.exe -m pip install "torch>=2.6,<3" --index-url https://download.pytorch.org/whl/cpu
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe download_assets.py
 .\.venv\Scripts\python.exe train_bert_tiny.py
 ```
 
 无需激活虚拟环境，所以 Windows 无需修改 PowerShell 的脚本执行策略。
-模型和数据首次下载需要能访问 Hugging Face。若下载失败，保留完整报错以便定位。
+模型实际文件已包含在 `assets/model/`。先运行 `download_assets.py`，从 Hugging Face
+下载固定版本的 SST-2 到 `assets/dataset/` 并核对所有文件。上游数据许可证为 unknown，
+因此数据仅下载到本地，不公开转载到 GitHub。准备完成后训练使用本地文件，详见
+[资源来源与下载说明](assets/README.md)。若下载失败，保留完整报错以便定位。
 出现 classifier 参数新初始化的提示是正常的：二分类层正是本次要训练的部分。
 
 ## 2. 训练设置和结果
@@ -57,7 +62,7 @@ py -3.11 -m venv .venv
 - 保存的是可用于推理的模型检查点，不含用于精确恢复训练的优化器状态。
 
 脚本输出 `COMPLETE` 后，检查新生成的 `bert-tiny-sst2-cpu` 文件夹。
-`metrics.json` 包含训练循环耗时、包含下载等操作的总耗时、CPU 时间、主机名、
+`metrics.json` 包含训练循环耗时、包含准备、验证与保存操作的总耗时（不含单独执行的资源下载）、CPU 时间、主机名、
 验证准确率、实际依赖版本和预测结果。CPU 百分比以一个逻辑核满载为 100%，可能超过 100%。
 
 已有输出不会被覆盖。重跑时指定新目录，例如：
@@ -102,7 +107,8 @@ Windows 可考虑 WSL2/Linux 虚拟机，Mac 可考虑与芯片架构匹配的 L
 
 ## 提交与结果共享
 
-模型权重、虚拟环境和训练输出不要提交到 Git。请在本目录运行命令；本目录的 `.gitignore`
+新训练得到的模型权重、虚拟环境、原始数据和训练输出不要提交到 Git。
+`assets/model/` 内的固定上游预训练模型是本示例明确跟踪的例外。请在本目录运行命令；本目录的 `.gitignore`
 已排除默认输出、常见训练产物和虚拟环境。分享运行结果前检查 `metrics.json` 中的主机名、
 绝对路径和示例句子，仅向需要这些信息的队友分享。依赖当前是版本范围，不是锁定文件；
 首次成功后保存 `pip freeze` 输出，三机环境应统一版本并重新测试。
