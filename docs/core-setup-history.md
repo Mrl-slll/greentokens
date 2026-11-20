@@ -1,3 +1,5 @@
+> Scope: historical plan, handoff, or validation evidence. Feature statements and test results apply to its recorded stage, not the whole current system. Start with the [current developer guide](../README.md).
+
 # GreenTokens Core
 
 GreenTokens orchestrates approved compute workloads on a local trusted Ray
@@ -113,7 +115,7 @@ and installation when using the already prepared environment.
 `requirements-smoke.txt` pins `ray[default]==2.60.0`.
 
 ```powershell
-Set-Location -LiteralPath 'C:\Users\kcody\OneDrive\Desktop\Greentokens core'
+Set-Location -LiteralPath 'C:\Users\<user>\OneDrive\Desktop\Greentokens core'
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements-smoke.txt
 .\.venv\Scripts\python.exe -m pip check
@@ -147,7 +149,7 @@ Milestone 1 files exist:
 ```bash
 sudo apt update
 sudo apt install python3.12-venv
-cd '/mnt/c/Users/kcody/OneDrive/Desktop/Greentokens core'
+cd '/mnt/c/Users/<user>/OneDrive/Desktop/Greentokens core'
 python3.12 --version
 python3.12 -m venv "$HOME/.venvs/greentokens-smoke"
 "$HOME/.venvs/greentokens-smoke/bin/python" -m pip install -r requirements-smoke.txt
@@ -168,7 +170,7 @@ documented but has not been executed or verified on this machine.
 - `python -m pip check` inside `.venv`: `No broken requirements found.`
 - Imported Ray and verified version `2.60.0`.
 - Ran `scripts/ray_smoke_test.py` twice: both exited 0 with eight validated results,
-  four worker processes, and one node on host `Cody`.
+  four worker processes, and one node on host `development-pc`.
 - Ran `python -m unittest discover -s tests -p test_ray_smoke.py -v` inside
   `.venv`: one integration test passed in 13.606 seconds. This executes the real
   script in another subprocess, rather than mocking Ray.
@@ -198,7 +200,7 @@ SMOKE TEST PASSED
 
 The initial sandboxed pip attempt failed with Windows socket error 10013. The
 approved network-enabled installation succeeded. The initial sandboxed smoke
-run exited 1 because access to `C:\Users\kcody\.ray` was denied; both subsequent
+run exited 1 because access to `C:\Users\<user>\.ray` was denied; both subsequent
 direct runs and the integration test succeeded outside the sandbox. No firewall
 rules were changed. Usage reporting is disabled before Ray is imported.
 

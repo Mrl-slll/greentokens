@@ -1,0 +1,36 @@
+name: Provider download site (GitHub Pages)
+
+# Publishes apps/provider_site/ to the gh-pages branch. In the repo settings,
+# Pages must be set to: Source = "Deploy from a branch", Branch = gh-pages, folder = / (root).
+on:
+  push:
+    paths:
+      - "apps/provider_site/**"
+      - ".github/workflows/provider-site.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: provider-site
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/provider-app' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish to gh-pages
+        run: |
+          rm -rf "$RUNNER_TEMP/site" && mkdir "$RUNNER_TEMP/site"
+          cp -r apps/provider_site/. "$RUNNER_TEMP/site/"
+          touch "$RUNNER_TEMP/site/.nojekyll"
+          cd "$RUNNER_TEMP/site"
+          git init -q -b gh-pages
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Publish provider download site from ${GITHUB_SHA}"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" gh-pages

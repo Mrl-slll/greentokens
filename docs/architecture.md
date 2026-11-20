@@ -1,48 +1,41 @@
-# Local control-plane architecture
+# Current architecture reference
+
+Reviewed 19 November 2026. The [root README](../README.md) is the full developer guide; this page is a compact architecture reference for existing links and the web documentation viewer.
+
+## Services and responsibilities
 
 ```mermaid
 flowchart LR
-  Client[Local CLI / API docs] --> API[FastAPI: identity stub + validation]
-  API --> DB[(MySQL: jobs, attempts, artifacts, usage)]
-  Dispatcher[Single dispatcher / reconciler] <--> DB
-  Dispatcher --> Jobs[Private Ray Jobs API]
-  Jobs --> Driver[Fixed approved job driver]
-  Driver --> Task[CPU-only Ray sum task]
-  Driver <--> DB
-  API <--> S3[(SeaweedFS S3: input, output, logs)]
-  Driver <--> S3
-  Dispatcher --> S3
+    UI[Local Next.js app] --> API[FastAPI]
+    SDK[Local Python SDK] --> API
+    Remote[Provider app / remote customer] --> Tunnel[HTTPS tunnel]
+    Tunnel --> API
+    API <--> DB[(MySQL)]
+    API <--> Storage[(SeaweedFS artifacts)]
+    Dispatcher[Dispatcher] <--> DB
+    Dispatcher --> Ray[Ray Jobs / trusted nodes]
+    Ray --> Storage
+    API <--> Relay[Local four-PC experiment files]
 ```
 
-API, dispatcher, and Ray job driver are separate processes. API restarts cannot
-erase queued jobs or execution records. Alembic owns schema creation; the API
-never creates tables at startup. The launcher seeds only local development users
-and publishes trusted runtime resource capacity with a heartbeat.
+The **control plane** consists of API, persistence and reconciliation. Computation happens either in trusted Ray tasks/actors or in independent provider subprocesses. These paths share job/artifact concepts but have different assignment and failure semantics.
 
-The dispatcher holds a MySQL advisory lock to ensure a single process owns
-dispatch, and checks lock ownership before every tick. It claims a queued row
-under a transaction and commits an attempt with a unique Ray submission ID.
-Submission intent is committed before the network call. Recovery polls that ID;
-an ambiguous missing submission is not executed again. If it cannot be found
-after the 60-second grace period, the attempt fails as `EXECUTION_LOST`.
+## Ray path
 
-`QUEUED -> DISPATCHING -> RUNNING -> SUCCEEDED / FAILED / CANCELLED` is the normal
-lifecycle. Fast jobs can pass directly from DISPATCHING to a terminal state
-between polls. Cancellation is persistent, and running jobs are not reported
-cancelled until Ray confirms a terminal state. The runtime limit includes a
-60-second launch grace; the driver's `ray.get` separately bounds task execution.
+The dispatcher owns a MySQL advisory lock, claims one eligible Ray job, persists an attempt/submission ID and asks Ray Jobs to run the approved driver. Reconciliation checks runtime state, cancellation, logs and output integrity. Ambiguous lost execution fails rather than blindly re-executing. See [execution](../core/jobs/README.md).
 
-The driver reads only the persisted approved template, verifies stored inputs,
-runs its fixed task, and writes output to S3 before committing artifact metadata.
-The reconciler checks Ray status, stores logs, verifies output integrity, and
-commits a terminal state plus a uniquely constrained nonbillable usage record.
-Missing or corrupt output cannot become successful. Customer parameters never
-become shell commands, repository URLs, runtime environments, or object keys.
+## Provider path
 
-Results live outside MySQL. MySQL contains ownership, object keys, SHA-256, size,
-expiry, timestamps, and worker/attempt metadata. The API verifies ownership and
-expiry before fetching an object and checks its size and SHA-256 before delivery.
+Authenticated desktop workers heartbeat and long-poll the API. Transactional assignment gives each worker one approved package and an attempt with a 90-second renewable lease. Workers upload outputs and report completion. Expired leases can requeue ordinary work up to three total attempts. The dispatcher handles expiry; it does not launch these workers through Ray. See [provider app](../apps/provider_app/README.md).
 
-The local S3 implementation is interchangeable through boto3. The MySQL 8.4 image
-tracks the 8.4 maintenance line; SeaweedFS and all direct Python dependencies are
-version pinned. Transitive Python dependencies and image digests are not locked.
+## Shared training experiment
+
+Four device-pinned provider jobs train replicas, exchange compressed model changes through HTTPS relay files, average on remote rank zero and validate identical synchronized weights. The operator coordinates and stores bytes. This experiment uses local state and an in-process lock; it is not a horizontally scalable distributed coordinator. See [experiment](../experiments/four_pc_cpu/README.md).
+
+## Persistence and boundaries
+
+MySQL stores metadata/identity, SeaweedFS stores normal artifacts, and the experiment additionally stores files on the operator disk. API restart does not erase database rows, but this does not guarantee uninterrupted jobs, replicated data or backup recovery.
+
+The API remains loopback-bound. A local tunnel connector exposes selected routes through public HTTPS; bearer authentication is required for detected proxy calls. The customer website still uses local development selectors. See [security boundaries](security-boundaries.md).
+
+The default launcher starts Ray before the API, so a Ray startup failure can block provider login. Permanent hosting, API/Ray lifecycle separation and automatic recovery are [planned](roadmap.md), not implemented by these documents.

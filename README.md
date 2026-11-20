@@ -1,14 +1,82 @@
-# GreenTokens
+# GreenTokens: developer guide
 
-GreenTokens is a compute platform for submitting approved workloads, monitoring execution, and retrieving results. The customer application is the first frontend deliverable. A hardware-provider application is planned separately.
+> Publication note: machine names, private addresses and deployment URLs are placeholders. Recorded probe outcomes refer to the original private deployment, not to the example hostname. This documentation branch does not deploy the plan or publish the local experiment runtime.
 
-## Project scope
 
-The existing local backend uses FastAPI, MySQL, Ray Jobs/Core, and S3-compatible storage (SeaweedFS in development). The initial workload is `sum_numbers_v1`, executed on a trusted local CPU worker. The backend source and local setup instructions are included in this repository. The pipeline has been tested in the core developer's local environment.
+GreenTokens lets a customer submit an **approved computing workload**, lets available computers execute it, and returns status, logs, metrics, and model files. The operator runs the services coordinating those computers. Providers lend computing capacity; customers submit work.
 
-**First deliverable:** A customer can submit `[1, 2, 3, 4]`, receive a job ID, follow its actual status, and view the result `10`. The complete customer MVP will also accept an uploaded JSON input file and support job history, results, logs, cancellation, and usage information.
+This is the authoritative overview of the **current checkout**, reviewed against source on **19 November 2026**. It describes a development/pilot system, not a production cloud. Source paths show implementation; measured reports show observed results; plans describe work that has not happened yet. Explanations of technology choices describe their engineering fit, not an undocumented historical decision.
 
-Public accounts, GPU workloads, payments, provider agents, and installer software are outside the current customer MVP. Any provider screens are prototypes until backend support exists.
+**Hosting-plan update, 20 November 2026:** the target operator server is the stationary Raspberry Pi `operator-server`. the development PC remains the current hosting arrangement until the Pi passes readiness and migration checks, then becomes a development/administration computer. This is a plan update, not a claim that cutover or permanent public hosting has happened.
+
+## Reading map
+
+- [Capabilities and limits](#capabilities-and-limits)
+- [System architecture](#system-architecture)
+- [Target hosting structure: Raspberry Pi server](#target-hosting-structure-raspberry-pi-server)
+- [Technology choices explained](#technology-choices-explained)
+- [Repository and component map](#repository-and-component-map)
+- [Follow a job through the system](#follow-a-job-through-the-system)
+- [Networking and hardcoded addresses](#networking-and-hardcoded-addresses)
+- [Data, identities, and trust](#data-identities-and-trust)
+- [Run the project](#run-the-project)
+- [Validation and troubleshooting](#validation-and-troubleshooting)
+- [Changing the project](#changing-the-project)
+- [Source, GitHub, and installed apps](#source-github-and-installed-apps)
+- [Terminology](#terminology)
+
+## Capabilities and limits
+
+| Capability | Current implementation and limits |
+| --- | --- |
+| Customer web UI | Root Next.js app with mock mode and local live API mode; not a public customer login portal. |
+| Local Python SDK/CLI | Standard-library client using local development identities; CLI examples cover sum and linear regression. Not published to PyPI. |
+| Ray jobs | `sum_numbers_v1`, `linear_regression_v1`, and development `bert_tiny_ddp_v1`. |
+| Remote provider accounts | Signup/login/logout, salted password hashes, device-bound 24-hour sessions. No password recovery or persistent keychain login. |
+| Independent providers | Desktop agents poll HTTPS, run approved packages, renew leases and upload results. They do not need a Ray cluster. |
+| Single-provider training | `text_finetune_v1`: approved BERT models on SST-2, CPU or usable NVIDIA GPU. Separate jobs can run concurrently on separate providers. |
+| Four-PC shared model | Local experiment with HTTPS relay and periodic model-change averaging; a saved run reports success. Not a general distributed training product. |
+| Databricks | Customer notebooks and HTTPS bearer adapter exist; real workspace egress, secrets and Catalog permissions require workspace-specific validation. |
+| Durability | MySQL job records, SeaweedFS artifacts, plus local experiment files. Automated backup/restore is not implemented. |
+| Permanent address / unattended hosting | Planned on the Raspberry Pi. Stable public HTTPS for providers, private Tailscale administration, boot/restart supervision and backups. Current the development PC launcher still uses a temporary tunnel and background processes. |
+| Arbitrary code, billing, hostile-provider isolation | Not implemented. Approved code and trusted participants are pilot assumptions. |
+| TrOCR | UI/contract work only; not an accepted backend template. |
+| OpenViking shared agent knowledge | Future task only, recorded in [project memory and roadmap](docs/roadmap.md). Not installed or integrated. |
+
+The generic requirements schema still uses `gpus: 0` and `execution_class: trusted_cpu`. Provider GPU selection instead uses `parameters.require_gpu` and usable CUDA capability. This is not a complete GPU allocation scheduler.
+
+## System architecture
+
+The **control plane** handles identity, job records, assignment and cancellation. The **execution plane** runs calculations. Metadata and artifact bytes use different storage services.
+
+The diagram below describes the existing implementation's service relationships. The next section specifies the target host placement and operational changes; these must not be mistaken for already deployed features.
+
+```mermaid
+flowchart TD
+    Browser[Local customer browser] --> Web[Next.js UI and fixed API proxy]
+    Web --> API[FastAPI on operator PC]
+    SDK[Local SDK / CLI] --> API
+    Customer[Remote customer / Databricks] --> Tunnel[Public HTTPS tunnel]
+    Provider[Provider desktop app and Python worker] --> Tunnel
+    Tunnel --> API
+    API <--> DB[(MySQL: identities and job metadata)]
+    API <--> S3[(SeaweedFS: artifact bytes)]
+    Dispatcher[Dispatcher / reconciler] <--> DB
+    Dispatcher --> Ray[Private Ray Jobs and workers]
+    Ray --> S3
+    API <--> Experiment[Local experiment state and relay files]
+```
+
+There are **two execution paths**:
+
+1. **Ray:** the dispatcher submits a fixed driver to Ray Jobs. Ray schedules tasks/actors in a trusted cluster. The default launcher creates a local cluster; older group tools can attach multiple trusted machines.
+2. **Independent providers:** remote desktop agents ask the API for jobs. The API claims rows transactionally and returns package metadata. Python workers execute packages locally. The dispatcher checks expired leases but does not submit these jobs to Ray.
+
+Several connected computers do not automatically train one model together. Ordinary provider jobs each use one computer. The four-PC experiment explicitly coordinates replicas of one model.
+
+## Target hosting structure: Raspberry Pi server
+
+### Machine roles
 
 ## BERT-Tiny CPU training starter
 
@@ -29,9 +97,21 @@ This is a standalone single-computer experiment with its own optional environmen
 
 **Integration contract:** Person A leads the frontend architecture and owns the shared typed client, proxy, routes and development identity state. Person B uses that client for job detail, results, artifacts and cancellation rather than building a second transport layer. Coordinate component props, function signatures, error handling and branch integration to avoid conflicting implementations. Backend execution and deployment changes remain with the core developer.
 
-## Delivery order
+This is **one server with automatic recovery**, not redundant high availability. Pi failure, external-drive loss, power outage or ISP failure can still stop service. A second tunnel connector does not replicate the database or stored models.
 
-| Priority | Deliverable | Acceptance |
+### Storage, migration and installer boundaries
+
+- Explicitly place persistent database, object and experiment data on the external disk. Having a 1 TB drive attached does not mean Docker volumes use it. Require the mount before starting data services so a missing drive does not create an empty database on the boot disk.
+- Back up to a separate device/location and test restoration. A second folder on the same external disk is not protection against disk failure.
+- Inventory and preserve data on both the development PC and the existing Pi deployment. Drain/cancel active jobs before a consistent migration; retain accounts, device ownership, job records and matching artifact bytes. Do not run two independent writable copies as if they were synchronized.
+- Existing installers contain a fixed public origin. They need one replacement targeting the final hostname and matching Tauri CSP. Ordinary later restarts or host moves behind that same hostname should not require another URL-related reinstall. Feature/security updates remain separate.
+- Retain the development PC's hosting arrangement until the Pi is validated and cutover is deliberate. Once the Pi accepts new writes, rollback must preserve those writes rather than restoring stale the development PC data.
+
+### Readiness evidence and outstanding work
+
+Checks made on **19 November 2026**, not a live status assertion:
+
+| Check | Observation | What it establishes |
 | --- | --- | --- |
 | **P0** | Local customer dashboard + inline job | A real `sum_numbers_v1` submission returns `10` through the frontend |
 | **P1** | Complete customer MVP | JSON upload, recent jobs, results/artifacts, cancellation, usage, and identity isolation work |
@@ -154,58 +234,142 @@ Start this only after the customer MVP is accepted.
 
 | Method | Endpoint | Use |
 | --- | --- | --- |
-| `GET` | `/health` | Local API/database health |
-| `POST` | `/v1/jobs` | Submit the approved CPU job |
-| `GET` | `/v1/jobs/{id}` | Job status, attempts, timestamps, errors, artifacts |
-| `GET` | `/v1/jobs/{id}/result` | Successful job output |
-| `POST` | `/v1/jobs/{id}/cancel` | Request cancellation |
-| `POST` | `/v1/artifacts` | Upload raw JSON input |
-| `GET` | `/v1/artifacts/{id}` | Retrieve authorized artifact or log |
-| `GET` | `/v1/usage` | Attempt count and elapsed wall time |
-| `GET` | `/openapi.json` | API reference (current responses/header documentation is incomplete) |
+| `app/`, `components/`, `lib/` | Customer UI, API proxy, mock/live clients and inference demo | [Web app](app/README.md) |
+| `core/api/`, `core/config.py` | API, request policy, authentication | [Backend](core/README.md) |
+| `core/database/` | Tables, database sessions and migrations | [Database](core/database/README.md) |
+| `core/artifacts/` | Object-storage writes, expiry and integrity | [Storage](core/artifacts/README.md) |
+| `core/jobs/`, `core/ray_runtime/` | Scheduling, leases and Ray drivers | [Execution](core/jobs/README.md) |
+| `core/workloads/` | Approved calculation/training code | [Workloads](core/workloads/README.md) |
+| `apps/provider_app/` | Desktop UI, native bridge, Python worker | [Provider app](apps/provider_app/README.md) |
+| `apps/provider_site/` | Static installer download page | [Download site](apps/provider_site/README.md) |
+| `sdk/` | Local Python API client and CLI | [SDK](sdk/README.md) |
+| `databricks/` | Remote customer notebooks and client adapter | [Databricks](databricks/README.md) |
+| `scripts/`, `infrastructure/` | Startup, diagnostics, container definitions and older group tools | [Operations](scripts/README.md), [infrastructure](infrastructure/README.md) |
+| `examples/` | Small pipeline examples and standalone BERT baseline | [Examples](examples/README.md) |
+| `experiments/` | Research workflows and measured reports | [Experiments](experiments/README.md) |
+| `tests/` | Python tests; UI tests also live beside frontend code | [Testing](tests/README.md) |
+| `.github/workflows/` | Installer and site automation | [Delivery](.github/README.md) |
+| `docs/` | Runbooks, contracts, roadmap and historical evidence | [Documentation index](docs/README.md) |
+| `greentokens/` | Ignored separate checkout on this workstation | Not a package/submodule of the outer repository. Check which checkout your editor/server uses. |
+| `.tools/`, `.venv/`, `node_modules/`, `.next/` | Local tools, dependencies and generated output | Not portable application source. |
 
-The development API requires `X-Dev-User` for protected requests. The current backend has no browser CORS configuration; browser requests should use the local same-origin proxy. `GET /v1/jobs`, `/v1/job-templates`, `/v1/me`, and `/v1/provider/*` are not available. `/v1/workers` is admin diagnostics, not a customer screen.
+## Follow a job through the system
 
-Example submission body:
+### Local linear regression
 
-```json
-{
-  "template_id": "sum_numbers_v1",
-  "parameters": { "values": [1, 2, 3, 4] },
-  "requirements": {
-    "cpu_cores": 1,
-    "ram_gb": 0.125,
-    "gpus": 0,
-    "execution_class": "trusted_cpu",
-    "max_runtime_seconds": 60
-  },
-  "idempotency_key": "frontend-demo-001"
-}
+1. The SDK reads JSON data and TOML configuration, then submits a job with a stable idempotency key and local identity selector.
+2. FastAPI validates inputs, quotas and worker availability, then stores a `QUEUED` job in MySQL.
+3. The dispatcher records an attempt before contacting Ray. This is a **database-backed durable work queue**, not a separate message broker.
+4. Ray Jobs runs `core.ray_runtime.runner`, which loads persisted approved input and executes the calculation.
+5. Output bytes go to SeaweedFS; their key, checksum, size and expiry go to MySQL.
+6. The reconciler checks execution status. The customer retrieves status/results through organization-scoped routes.
+
+The Ray lifecycle is `QUEUED → DISPATCHING → RUNNING → SUCCEEDED / FAILED / CANCELLED`. Fast jobs may finish between polls.
+
+### Remote provider training
+
+1. A provider signs in. Its session is bound to its device ID.
+2. The native app starts the worker with credentials in its environment. The worker reports capabilities and long-polls `/v1/provider/work`.
+3. A customer submits `text_finetune_v1`. Assignment claims a queued job under a transaction. One provider runs that job.
+4. The worker downloads/checksums the approved package, executes it and renews a 90-second lease.
+5. It uploads artifacts and reports completion. The API checks ownership and requires an output artifact record for success.
+6. Expired leases can cause requeueing up to three total attempts. Retrying is not checkpoint resume or guaranteed exactly-once execution.
+
+The provider loop already retries transient failures with backoff from 2 to 60 seconds while enabled. Authentication failures and a closed app are different conditions. A long outage can interrupt a job even if the worker later reconnects.
+
+### Four providers, one model
+
+The operator-only shared-test route creates four device-pinned jobs. Providers train locally, periodically exchange compressed weight changes through HTTPS chunks, and verify identical resulting weights at barriers. Remote rank zero averages changes. the development PC relays and coordinates; it does not train this model.
+
+See [the experiment](experiments/four_pc_cpu/README.md). Its final measured method is periodic local training plus weight-change averaging, not the earlier proposed per-step-gradient method and not Ray DDP.
+
+## Networking and hardcoded addresses
+
+`127.0.0.1` means **the machine running the caller**. On the development PC it means the development PC; on a provider computer it means 333.
+
+| Setting | Purpose |
+| --- | --- |
+| `127.0.0.1:3000` | Local customer Next.js app |
+| `127.0.0.1:8000` | Operator's FastAPI, used by local clients and tunnel connector |
+| `127.0.0.1:1420` | Provider Vite preview; not the provider API |
+| `127.0.0.1:8265` | Private Ray Jobs/dashboard |
+| `127.0.0.1:3307` | Dedicated MySQL container's host port |
+| `127.0.0.1:8333` | SeaweedFS S3 API |
+| `provider-server.json` | Public API origin compiled into provider JavaScript by Vite |
+| Tauri `connect-src` | Allowed webview connection origins; must match the public origin |
+| CI `GT_PROVIDER_SERVER` | Optional build-time override of the provider origin |
+
+Remote path: **provider → public HTTPS → cloudflared on the development PC → `127.0.0.1:8000` on the development PC**. Backend loopback is intentional; a remote provider must use the public address.
+
+The current startup script creates a **Quick Tunnel** whose hostname can change. Editing configuration does not update installed apps. Rebuilding does not update an old release asset unless the new installer is published. Re-downloading the same asset gives the same embedded address.
+
+Permanent DNS, a persistent tunnel and supervised startup are [planned](docs/roadmap.md), not installed by these docs. Stable addressing does not keep a powered-off server available.
+
+The updated deployment proposal uses `operator-server`, a user-reported Raspberry Pi with 8 GB RAM, 1 TB external storage and Debian, keeping the development PC for development. Its existing HTTPS backend responds, but provider login currently returns 404 and remote development selectors are accepted. Read the [specific deployment plan and verification findings](docs/server-migration-plan.md). The user wants private Tailscale administration plus public provider access; readiness, migration and automatic recovery are not yet established.
+
+## Data, identities, and trust
+
+- MySQL stores organizations, users, password/session hashes, workers, jobs, attempts, artifact metadata and nonbillable usage.
+- SeaweedFS stores normal artifact bytes. Default expiry is 24 hours; expiry blocks reads but does not delete stored bytes. Normal size limit is 64 KiB; model-kind storage allows up to 512 MiB. A proxy may impose a smaller transfer limit.
+- Experiment relay/run files are separate local data and require separate backup consideration.
+- `X-Dev-User: alice/bob/admin` selects a development identity; it is not secure authentication.
+- Provider password sessions are real, device-bound bearer credentials for the provider role. They do not create customer/admin access.
+- Customer/operator bearer API keys use a separate mapping to existing users.
+
+`GT_MODE=development` remains required. Proxy-header detection blocks tunneled requests from using development selectors, even though the tunnel itself reaches loopback. Changing proxy topology requires reviewing that boundary. Worker trust flags and reported hardware are not attestation; approved workloads are not a hostile-code sandbox. See [security boundaries](docs/security-boundaries.md).
+
+## Run the project
+
+Commands are for the **outer repository root**, in PowerShell. Avoid starting a second stack on occupied ports. Existing server orchestration is Windows-oriented; client portability does not prove server portability.
+
+These are the current the development PC/local-development commands, not the Pi's unattended deployment instructions. The [target hosting structure](#target-hosting-structure-raspberry-pi-server) is planned separately; do not assume running this launcher on Debian completes migration or service supervision.
+
+### Initial environment
+
+Use Python 3.12, Docker Desktop and Node 24. For a fresh checkout:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements-core.txt
+npm.cmd ci
 ```
 
-Generate an appropriate key for each new submission; the example key is not a permanent shared value.
+Do not recreate a working environment routinely. If this workspace's portable Node is needed:
 
-## Local development
+```powershell
+$nodeDir = (Get-ChildItem .tools -Directory -Filter 'node-*-win-x64' | Select-Object -First 1).FullName
+$env:PATH = "$nodeDir;$env:PATH"
+```
 
-For backend setup, follow `docs/local-development.md`. On the core developer's Windows environment, the documented command from the repository root is:
+### Start backend and web app
+
+With Docker Desktop ready, leave this running:
 
 ```powershell
 .\.venv\Scripts\python.exe -m scripts.local_stack
 ```
 
-API documentation: `http://127.0.0.1:8000/docs`
-Schema: `http://127.0.0.1:8000/openapi.json`
-
-The customer application is tracked in `apps/customer_dashboard/` on the `feat/customer-dashboard-ui` branch and is under review in [draft PR #1](https://github.com/Mrl-slll/greentokens/pull/1). It uses Next.js 16.4.6, TypeScript, ESLint and Tailwind CSS. The following commands were verified on Windows PowerShell:
+In a second terminal:
 
 ```powershell
-cd apps\customer_dashboard
-npm.cmd run lint
-npm.cmd run build
-npm.cmd run dev -- --hostname 127.0.0.1
+npm.cmd run dev
 ```
 
-The development server was accessible at `http://127.0.0.1:3000`; the customer dashboard was rendered and visually inspected in the browser. A second `npm run dev` instance is unnecessary while one is already running. The production-only npm audit reported zero vulnerabilities; the full audit reported seven moderate findings through development tooling. Review dependency updates before applying them.
+Open `http://127.0.0.1:3000`; select **Settings → Live** for real jobs. Check `http://127.0.0.1:8000/health` separately. That route checks API/database access, not all workers, storage operations or public connectivity.
+
+### First real job
+
+Use an unused directory name; `init` refuses overwrites:
+
+```powershell
+$env:PYTHONPATH = "$PWD\sdk"
+.\.venv\Scripts\python.exe -m greentokens check
+.\.venv\Scripts\python.exe -m greentokens init onboarding-training
+.\.venv\Scripts\python.exe -m greentokens explain onboarding-training/training.toml
+.\.venv\Scripts\python.exe -m greentokens submit onboarding-training/training.toml
+```
+
+Use the returned ID with `status`, `wait`, `logs` and `result`. Retry uncertain submissions with the same idempotency key and input. Change the key for a new job. See [SDK](sdk/README.md).
 
 The proxy allows documented customer API routes under `/api/core/` and forwards them to `http://127.0.0.1:8000` on the same machine. The blocked `/api/core/v1/workers` route returned HTTP 404; a cross-origin POST returned HTTP 403; and a same-origin POST reached the backend connection attempt and returned HTTP 502 while FastAPI was offline. The dashboard displayed `Local API unavailable` for a valid submission, with a retry option that preserves the request key. The admin identity cannot submit jobs through the customer form. The new `/jobs/[jobId]` page displays an unverified-identifier placeholder until detail integration. No live job or result has been verified. For a fresh checkout, run `npm.cmd ci` in `apps/customer_dashboard/` before the commands above. Do not copy virtual environments or credentials between machines.
 
@@ -229,16 +393,77 @@ Before attempting the launcher, confirm a supported Python 3.12 environment and 
 4. Resolve the Next.js instant-navigation insight and add focused automated frontend tests before closing integration.
 
 
-## Completion criteria
+Read [operations](scripts/README.md) before running `scripts/start_server.ps1`. It starts a tunnel, edits provider source configuration and attempts to update a Databricks URL secret. It does not rebuild/publish an installer. Both backend and tunnel must remain running, and the installer must target that tunnel.
 
-The customer MVP is ready for review when both input modes run successfully against the real backend, job and result data remain isolated between development identities, unsupported API calls are absent, error conditions have useful feedback, and a teammate can reproduce the demo using the written setup instructions. Frontend test results and a live walkthrough must accompany the handoff.
+Provider `npm run dev` is a browser preview. Native execution needs Tauri or an installed desktop build; see [provider guide](apps/provider_app/README.md).
 
-## Backend implementation and handoff references
+## Validation and troubleshooting
 
-- [Local development and API instructions](docs/local-development.md)
-- [Frontend teammate handoff](docs/applications-handoff.md)
-- [Architecture](docs/architecture.md) and [security boundaries](docs/security-boundaries.md)
-- [Recorded Milestones 2-3 validation](docs/validation-milestones-2-3.md)
-- [Original environment and Ray smoke-test setup](docs/core-setup-history.md)
+Use [component-appropriate tests](tests/README.md). Common root commands:
 
-The backend uses a local development identity stub. Production startup is blocked; real authentication and public deployment remain future work.
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s tests -p test_core.py
+.\.venv\Scripts\python.exe -m unittest discover -s tests -p test_sdk.py
+.\.venv\Scripts\python.exe -m unittest discover -s tests -p test_provider_auth.py
+npm.cmd test
+npm.cmd run lint
+npm.cmd run typecheck
+```
+
+| Symptom | Check |
+| --- | --- |
+| Website works, provider cannot connect | UI port 3000 is not API port 8000; verify API, public tunnel and installed origin independently. |
+| Reinstall does not fix connectivity | Compare release/build origin, version and checksum; the download may be unchanged. |
+| Public health succeeds, login fails | Check embedded URL, CSP, auth route, expired session and actual installed version. |
+| Dashboard works without backend | Mock mode simulates jobs. |
+| No eligible worker | Check recent heartbeat, worker kind, pause state and required capabilities. |
+| GPU detected but unusable | PyTorch must report usable CUDA; a device name is insufficient. |
+| Startup fails at Ray | Inspect sanitized errors and available memory; API startup is currently coupled to Ray. |
+| Edits have no visible effect | Check outer versus nested checkout and which directory the server uses. |
+| Results become inaccessible | Check artifact expiry and storage health. |
+
+Do not print full environment dumps, credential files or Docker inspection/configuration output: these can contain secrets.
+
+## Changing the project
+
+1. Identify execution path and user role before editing. Provider features are not automatically Ray features.
+2. Follow component guides to implementation and tests. Reuse existing helpers, as required by [AGENTS.md](AGENTS.md).
+3. Treat schemas, clients, persistence and runtime as one contract. A UI template name alone does not implement training.
+4. Use migrations for schema changes; do not reset volumes to hide upgrade problems.
+5. Change provider origin and Tauri policy together; verify the packaged installer separately.
+6. Update component docs when behavior changes. Label implemented, tested, deployed and planned separately.
+
+## Source, GitHub, and installed apps
+
+At this audit, the outer branch was `feat/bert-training-and-live-usage`, commit `84dfecf`, matching its remote feature branch. This is a dated observation, not a live deployment dashboard.
+
+- The new temporary provider origin was an uncommitted local edit.
+- Four-PC experiment files and associated API edits were local additions/modifications; run outputs are ignored by Git.
+- The nested `greentokens/` checkout is ignored by the outer repository.
+- `main`, a feature branch, release tag, downloadable binary, running process and local working tree can all differ.
+- Documentation is published separately on `developer-plan-update` under the commit title `11/20/2026 push`; this does not deploy services or publish an installer.
+
+A teammate must select `developer-plan-update` to receive these guides; the default branch is not updated by this documentation push. Local experiment implementation and ignored outputs remain excluded. Check `git status --short`, `git log -1` and actual release records before describing a feature as delivered.
+
+## Terminology
+
+| Term | Meaning here |
+| --- | --- |
+| Control plane | Services deciding access, assignment and job state. |
+| Execution plane | Processes/computers performing calculations. |
+| Long polling | Worker requests work; server holds the response briefly while waiting. |
+| Heartbeat | Recent report of availability; not proof of correct computation. |
+| Lease | Time-limited assignment that the worker renews. |
+| Reconciler | Loop comparing database state with runtime reality. |
+| Idempotency key | Caller identifier used to recognize repeated submissions. |
+| ORM / migration | Python-to-SQL model mapping / versioned persistent schema change. |
+| Object storage / artifact | Key-addressed file service / saved output or model. |
+| Checkpoint | Saved model state for inference or, when supported, resuming training. |
+| Reverse tunnel | Outbound connector carries public requests back to a local service. |
+| CORS / CSP | Browser cross-origin response policy / webview content and connection policy; not authentication. |
+| Native bridge / IPC | Controlled calls from desktop web UI into Rust commands. |
+| Data parallelism | Replicas process different data and coordinate model updates. |
+| Local SGD | Multiple local optimization steps between synchronization rounds. |
+| CI / release artifact | Automated checks/builds / compiled downloadable output. |
+
+Continue with the [documentation index](docs/README.md).

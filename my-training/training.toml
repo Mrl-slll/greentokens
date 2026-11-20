@@ -1,0 +1,12 @@
+template_id = "linear_regression_v1"
+idempotency_key = "dfe19217-8dfa-48ef-ab10-61d9eaa86592"
+
+[data]
+file = "dataset.json"
+
+[requirements]
+cpu_cores = 1
+ram_gb = 0.125
+gpus = 0
+execution_class = "trusted_cpu"
+max_runtime_seconds = 60

@@ -26,7 +26,7 @@ describe("validation", () => {
 describe("proxy allowlist", () => {
   it("allows documented routes", () => {
     expect(match("GET", ["health"])).toBe(0);
-    expect(match("POST", ["v1", "jobs"])).toBe(8192);
+    expect(match("POST", ["v1", "jobs"])).toBe(16384);
     expect(match("GET", ["v1", "jobs", U, "result"])).toBe(0);
     expect(match("POST", ["v1", "artifacts"])).toBe(65536);
   });

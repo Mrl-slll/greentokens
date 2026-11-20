@@ -1,3 +1,5 @@
+> Scope: historical plan, handoff, or validation evidence. Feature statements and test results apply to its recorded stage, not the whole current system. Start with the [current developer guide](../README.md).
+
 # Milestones 2–3 validation — November 14, 2026
 
 Environment: Windows 11, Python 3.12.10, Ray 2.60.0, actual MySQL 8.4.13,
