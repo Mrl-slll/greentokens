@@ -11,6 +11,7 @@ __pycache__/
 
 # A separate local checkout; the outer repository must not track it as a submodule.
 /greentokens/
+/experiments/four_pc_cpu/runs/
 
 # Generated public signing metadata. No private signing material belongs here.
 apps/provider_app/src-tauri/tauri.signing.conf.json

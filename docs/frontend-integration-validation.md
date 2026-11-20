@@ -1,3 +1,5 @@
+> Scope: historical plan, handoff, or validation evidence. Feature statements and test results apply to its recorded stage, not the whole current system. Start with the [current developer guide](../README.md).
+
 # Frontend and backend integration — 14 November 2026
 
 Integrated remote `main` through `f0f304e` into the existing backend checkout using a fast-forward. No new merge commit was created. Compatibility fixes remain uncommitted for review.

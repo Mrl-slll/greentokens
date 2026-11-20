@@ -9,9 +9,7 @@ The platform's existing four-machine milestone is separate.
 
 ## Relationship to GreenTokens
 
-The current customer workload is `sum_numbers_v1`. Its FastAPI schema, Ray Jobs
-runner, MySQL records, and S3 artifact handling do not yet support model training.
-Run this example from the terminal; it is not a dashboard submission template.
+This is a standalone baseline, not a dashboard submission template. The main platform now also implements approved Ray/provider training paths; see the [system guide](../../README.md). Run this particular example from the terminal.
 No backend services, credentials, Ray cluster, Docker, or GPU are required for
 this baseline. The optional ML dependencies live in a separate virtual environment.
 

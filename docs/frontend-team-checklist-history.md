@@ -1,3 +1,5 @@
+> Scope: historical plan, handoff, or validation evidence. Feature statements and test results apply to its recorded stage, not the whole current system. Start with the [current developer guide](../README.md).
+
 # GreenTokens
 
 GreenTokens is a compute platform for submitting approved workloads, monitoring execution, and retrieving results. The customer application is the first frontend deliverable. A hardware-provider application is planned separately.
@@ -214,10 +216,10 @@ The customer MVP is ready for review when both input modes run successfully agai
 
 ## Backend implementation and handoff references
 
-- [Local development and API instructions](docs/local-development.md)
-- [Frontend teammate handoff](docs/applications-handoff.md)
-- [Architecture](docs/architecture.md) and [security boundaries](docs/security-boundaries.md)
-- [Recorded Milestones 2-3 validation](docs/validation-milestones-2-3.md)
-- [Original environment and Ray smoke-test setup](docs/core-setup-history.md)
+- [Local development and API instructions](local-development.md)
+- [Frontend teammate handoff](applications-handoff.md)
+- [Architecture](architecture.md) and [security boundaries](security-boundaries.md)
+- [Recorded Milestones 2-3 validation](validation-milestones-2-3.md)
+- [Original environment and Ray smoke-test setup](core-setup-history.md)
 
 The backend uses a local development identity stub. Production startup is blocked; real authentication and public deployment remain future work.

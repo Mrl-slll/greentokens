@@ -1,44 +1,107 @@
-# GreenTokens Provider
+# Provider desktop application
 
-Install the desktop app, **create an account or sign in**, then press **Connect** and approve setup. No invite or group code is needed. The installed app runs approved jobs through an outbound connection to the operator's server. The browser preview is explicitly simulated.
+[System guide](../../README.md) · [Backend](../../core/README.md) · [Operations](../../scripts/README.md)
 
-See [the owner guide](../../docs/provider-guide.md) and [operator checklist](../../docs/operator-checklist.md). Version 0.3.1 is prepared as an unsigned test release. See [Windows distribution](../../docs/windows-distribution.md) for the signed-release requirements.
+## What this component does
 
-## Develop
+This is the application a hardware owner installs to lend computing capacity. The owner creates a provider account, signs in, approves local setup and presses Connect. The app starts a Python worker that connects **outward** to the operator's API, asks for work and returns results. Closing the app stops sharing.
 
-Use Node 24 from this folder:
+The current worker path does not create or join a Ray cluster. Earlier group-code helpers still exist in the Python source for old experiments, but the current Rust bridge exposes setup/capabilities and independent worker start/stop/state, not general Ray host/join actions.
 
-```powershell
-npm run dev
-npm test
-npm run typecheck
-npm run build
+## Architecture and technology choices
+
+```text
+React UI → Tauri IPC → Rust native bridge → private Python worker
+   │                                            │
+   └─ HTTPS signup/login/logout                 └─ HTTPS heartbeat/work/lease/artifacts
+                         ↓
+                    Operator API
 ```
 
-Browser preview: http://127.0.0.1:1420. Use made-up credentials in the simulated preview. Desktop development additionally requires Rust and the platform build tools (`npm run tauri dev`).
+- **React/TypeScript** builds the interface and defines service/state types.
+- **Vite** serves the development preview and compiles frontend assets. It is a build tool, not the worker server.
+- **Tauri** packages the UI in a native webview. Its IPC bridge lets JavaScript call explicitly registered Rust functions.
+- **Rust** manages native process lifecycle, hardware/usage probes and runtime paths. It validates arguments before spawning work.
+- **uv** provisions a private Python 3.12.16 runtime in the app's data directory. ML packages are installed after setup consent. This avoids requiring every provider to manually install a development environment.
+- **Python/PyTorch** runs the approved calculation/training workload. GPU drivers remain a separate machine prerequisite.
 
-## Server configuration
+The native bridge narrows available actions; it does not turn approved subprocesses into an OS security sandbox.
 
-The backend runs on the operator's PC. The app embeds its public HTTPS tunnel address at build time; providers never type it:
+## Source map
+
+| File | Responsibility |
+| --- | --- |
+| `src/App.tsx`, `src/screens/` | Account flow and Home/Hardware/Activity/Settings UI |
+| `src/hooks/useProvider.tsx` | Connection/setup state and lifecycle |
+| `src/services/providerAuth.ts` | Signup/login/logout and in-memory session |
+| `src/services/liveProviderService.ts` | Calls Tauri worker commands and maps state |
+| `src/services/mockProviderService.ts` | Simulated browser-preview behavior |
+| `src/services/hardware.ts`, `usage.ts` | Hardware/usage adapters |
+| `src-tauri/src/main.rs` | Registers allowed native commands and stops worker on window destruction |
+| `src-tauri/src/agent.rs` | Private runtime, argument validation, worker process handling |
+| `src-tauri/src/hardware.rs`, `usage.rs` | Native hardware/usage collection |
+| `src-tauri/agent/gt_agent.py` | Setup, capabilities, package download, execution and retry loop; also contains historical group helpers |
+| `provider-server.json`, `vite.config.ts` | API origin compiled as `__PROVIDER_SERVER__` |
+| `src-tauri/tauri.conf.json` | Native app settings and frontend connection policy |
+| `scripts/configure-server.mjs` | Validates an origin and updates endpoint/CSP together |
+
+## Authentication and persistence
+
+Passwords and sessions stay in memory on the client. The server stores salted scrypt password hashes and session-token hashes. Sessions expire after 24 hours and are bound to a device ID. Re-signing in on the same device replaces that account's prior session there. Sign-out stops the worker and attempts server revocation.
+
+Account credentials are not group codes. Other computers sign in independently. Remembered hardware setup/preferences do not imply persistent authentication: reopening the app requires sign-in. An offline logout cannot guarantee immediate server-side revocation, though expiry remains in effect.
+
+The Rust bridge passes credentials to Python through environment variables, not command-line arguments. Do not print worker environments or export them into diagnostic files.
+
+## Worker protocol
+
+1. Report capabilities and online/paused status with a heartbeat.
+2. Long-poll for a job (normally requesting a 20-second wait).
+3. Download the allowlisted workload package and verify its SHA-256.
+4. Run its fixed entry point in a subprocess; collect progress and enforce timeout/stop handling.
+5. Renew the attempt lease while running; respect the server's continue/cancel response.
+6. Upload output/log/model artifacts, report completion and clean job files.
+
+Transient network exceptions cause reconnect backoff from 2 to 60 seconds while the worker remains enabled. Friendly/authentication failures stop with an error. A long network outage can kill a running workload and allow its server lease to expire. Reconnection is not guaranteed continuation of an interrupted job.
+
+Provider-reported hardware is not attestation. A GPU contributes usable capacity only if PyTorch reports CUDA availability. Current training setup selects a supported PyTorch/CUDA package; it does not install or upgrade NVIDIA drivers.
+
+## Endpoint and loopback explained
+
+The installed frontend calls the origin compiled from `provider-server.json`. `127.0.0.1:1420` in the Vite/Tauri dev configuration is the local UI preview, not the remote API. `http://ipc.localhost` is native IPC policy, not the operator server. The backend's `127.0.0.1:8000` is reachable by the tunnel connector on the operator PC.
+
+For remote machines, the compiled API origin must be public HTTPS. Development on the operator PC can use `http://127.0.0.1:8000`. The configurator updates both the URL and Tauri `connect-src` policy:
 
 ```powershell
-node scripts/configure-server.mjs https://YOUR-CURRENT-TUNNEL.trycloudflare.com
-npm run tauri build
+# From apps/provider_app; replace this example with the real, configured origin.
+node scripts/configure-server.mjs https://api.example.com
 ```
 
-The script updates `provider-server.json` and Tauri's exact `connect-src` allowlist together. For development on this PC only, `http://127.0.0.1:8000` is also accepted. CI rejects plain HTTP. GitHub Actions optionally uses repository variable `GT_PROVIDER_SERVER`; otherwise it uses `provider-server.json`.
+That changes source only. Rebuild and distribute the installer separately. CI may override the origin with `GT_PROVIDER_SERVER`. An existing installer does not learn a new temporary tunnel address by itself.
 
-A changing quick-tunnel address requires rebuilding the installer. Keep the tunnel running for the pilot. A permanent hostname can still point to this same PC later.
+## Development and builds
 
-## Accounts
+From this directory, with Node 24 available:
 
-- React/TypeScript UI calls FastAPI's provider signup/login/logout endpoints over HTTPS.
-- The backend stores salted scrypt password hashes and hashes of device-bound, 24-hour sessions in MySQL. Signup always creates a provider, never a customer or administrator.
-- Passwords and session tokens stay in memory. Old localStorage invite credentials are discarded during upgrade. Reopen the app and sign in again; the sharing consent and hardware setup remain remembered.
-- Signing out stops the worker and revokes that session. An offline sign-out reports that server-side expiry is still pending.
-- Tauri passes the session to the Python worker in its environment, never its command-line arguments. The worker polls for approved work and returns results. No Ray cluster is created on provider computers.
-- Training remains one job per provider; this change does not implement distributed model training or hostile-provider isolation.
+```powershell
+npm.cmd ci
+npm.cmd run dev
+npm.cmd test
+npm.cmd run typecheck
+npm.cmd run build
+```
 
-## Build and release
+The browser preview is simulated; use made-up credentials. Native development additionally needs Rust and platform build tools:
 
-`.github/workflows/provider-app.yml` tests and builds Windows/Mac installers. Tag `provider-v0.3.1` publishes an explicitly labeled unsigned preview after both platform builds and checksum checks succeed. Other `provider-v*` tags still require verified Windows signing. Branch builds remain development artifacts. No commit, push or release is required to run local tests. Password recovery and persistent keychain sign-in are future work.
+```powershell
+npm.cmd run tauri dev
+npm.cmd run tauri build
+```
+
+A full distributable also needs bundled resources and platform configuration supplied by the release workflow. Do not assume a bare local build reproduces the published installer. See [delivery](../../.github/README.md) and [Windows distribution](../../docs/windows-distribution.md). Version 0.3.1 is an unsigned test release, not proof of production signing/notarization.
+
+## Verification and extension
+
+Use `tests/` for frontend flows and `src-tauri/agent/test_gt_agent.py` for worker behavior. Then test a real installed app on a second computer: login, heartbeat, one approved job, pause/stop, network interruption and sign-out. Browser tests cannot validate native packaging or remote connectivity.
+
+For a new workload, coordinate backend schemas/package mapping and Python dependencies. For a new UI capability, coordinate service interface, mock and live adapters, native command if needed, and lifecycle tests. Do not expose arbitrary shell commands through IPC.

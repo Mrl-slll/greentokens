@@ -1,3 +1,5 @@
+> Scope: historical plan, handoff, or validation evidence. Feature statements and test results apply to its recorded stage, not the whole current system. Start with the [current developer guide](../README.md).
+
 **GreenTokens provider architecture review and migration plan**
 
 16 November 2026. Reviewed the supplied assessment against the working checkout on `feat/bert-training-and-live-usage`, HEAD `d317a6c`, including the existing untracked provider diagnostic scripts. This is a source review and focused unit-test run, not proof of a deployed Databricks workspace, internet-connected provider network, installer release, or multi-computer training run. No application code was changed for this review.

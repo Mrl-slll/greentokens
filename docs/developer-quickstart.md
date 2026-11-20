@@ -1,6 +1,6 @@
 # Developer quickstart
 
-GreenTokens runs approved CPU pipelines on a local Ray worker. Start with one real linear-regression training run, then inspect the job and download its model. This is not yet a service for arbitrary Python training scripts, GPUs, or remote cloud accounts.
+This tutorial covers the local SDK and approved CPU pipelines on a local Ray worker. Start with one linear-regression run, then inspect the job and download its result. The broader platform also has authenticated remote providers and selected GPU workloads; see the [system guide](../README.md). This local client tutorial does not cover those paths or arbitrary Python scripts.
 
 ## Prerequisites
 

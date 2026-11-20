@@ -1,3 +1,5 @@
+> Scope: historical plan, handoff, or validation evidence. Feature statements and test results apply to its recorded stage, not the whole current system. Start with the [current developer guide](../README.md).
+
 # Developer MVP validation — 14 November 2026
 
 ## Implemented
