@@ -90,6 +90,27 @@ class ProviderAuthTests(unittest.TestCase):
             db.scalar(select(ProviderSession)).expires_at = now() - timedelta(seconds=1)
         self.assertEqual(self.heartbeat(self.bearer(signed)).status_code, 401)
 
+    def test_refresh_rotates_session_and_keeps_device_binding(self):
+        signed = self.signup()
+        old = self.bearer(signed)
+        refreshed = self.client.post("/v1/provider/auth/refresh", headers=old, json={"device_id": "device-0001"})
+        self.assertEqual(refreshed.status_code, 200)
+        self.assertEqual(refreshed.headers["cache-control"], "no-store")
+        self.assertEqual(refreshed.json()["account"], {"displayName": "provider-one", "deviceId": "device-0001"})
+        self.assertNotEqual(refreshed.json()["access_token"], signed.json()["access_token"])
+        self.assertEqual(self.heartbeat(old).status_code, 401)
+        self.assertEqual(self.heartbeat(self.bearer(refreshed)).status_code, 200)
+        with self.sessions() as db:
+            self.assertGreater(db.scalar(select(ProviderSession)).expires_at, now() + timedelta(days=29))
+        new = self.bearer(refreshed)
+        self.assertEqual(self.client.post("/v1/provider/auth/refresh", headers=new,
+                                          json={"device_id": "device-other"}).status_code, 401)
+        self.assertEqual(self.client.post("/v1/provider/auth/refresh", json={"device_id": "device-0001"}).status_code, 401)
+        with self.sessions.begin() as db:
+            db.scalar(select(ProviderSession)).expires_at = now() - timedelta(seconds=1)
+        self.assertEqual(self.client.post("/v1/provider/auth/refresh", headers=new,
+                                          json={"device_id": "device-0001"}).status_code, 401)
+
     def test_duplicate_signup_does_not_leave_extra_organizations(self):
         self.signup()
         with self.sessions() as db:

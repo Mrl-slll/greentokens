@@ -14,14 +14,17 @@ from sqlalchemy.exc import IntegrityError
 from core.api.schemas import StrictModel
 from core.database.models import AuthThrottle, Organization, ProviderLogin, ProviderSession, User, now, uid
 
-SESSION_LIFETIME = timedelta(hours=24)
+# The app keeps the session in the OS keychain and swaps it for a fresh one on every launch
+# (POST /refresh), so a computer that is used at least monthly stays signed in.
+SESSION_LIFETIME = timedelta(days=30)
+DEVICE_ID = Field(min_length=8, max_length=64, pattern=r"^[A-Za-z0-9-]+$")
 HASH_SLOTS = BoundedSemaphore(2)
 
 
 class Credentials(StrictModel):
     username: str = Field(min_length=3, max_length=32, pattern=r"^[a-z0-9][a-z0-9_-]{2,31}$")
     password: SecretStr
-    device_id: str = Field(min_length=8, max_length=64, pattern=r"^[A-Za-z0-9-]+$")
+    device_id: str = DEVICE_ID
 
     @field_validator("username", mode="before")
     @classmethod
@@ -36,6 +39,10 @@ class Credentials(StrictModel):
         if not 1 <= len(value.get_secret_value()) <= 1024:
             raise ValueError("Enter a password")
         return value
+
+
+class RefreshBody(StrictModel):
+    device_id: str = DEVICE_ID
 
 
 def password_digest(password, salt):
@@ -86,14 +93,32 @@ def throttle(sessions, scope, limit, seconds=60):
                 raise HTTPException(429, "Please wait and try again.") from None
 
 
+def client_address(request):
+    # The API is loopback-only behind cloudflared. Only that proxy supplies this header.
+    address = request.headers.get("cf-connecting-ip", request.client.host if request.client else "unknown")
+    try:
+        return str(ip_address(address))
+    except ValueError:
+        return "local"
+
+
+def new_session(db, user_id, device_id):
+    token = "gt_" + secrets.token_urlsafe(32)
+    expires = now() + SESSION_LIFETIME
+    db.add(ProviderSession(token_hash=hashlib.sha256(token.encode()).hexdigest(), user_id=user_id,
+                           device_id=device_id, expires_at=expires))
+    return token, expires
+
+
+def session_reply(response, token, expires, username, device_id):
+    response.headers["Cache-Control"] = "no-store"
+    return {"access_token": token, "token_type": "bearer", "expires_at": expires.isoformat() + "Z",
+            "account": {"displayName": username, "deviceId": device_id}}
+
+
 def add_auth_routes(app, sessions):
     def authenticate(body, request, response, signup):
-        # The API is loopback-only behind cloudflared. Only that proxy supplies this header.
-        address = request.headers.get("cf-connecting-ip", request.client.host if request.client else "unknown")
-        try:
-            address = str(ip_address(address))
-        except ValueError:
-            address = "local"
+        address = client_address(request)
         throttle(sessions, "auth:global", 120)
         throttle(sessions, "auth:ip:" + address, 20)
         throttle(sessions, "auth:user:" + body.username, 10)
@@ -125,13 +150,8 @@ def add_auth_routes(app, sessions):
                 # Re-signing in on a device replaces its old session; other computers stay signed in.
                 db.execute(delete(ProviderSession).where(ProviderSession.user_id == login.user_id,
                                                          ProviderSession.device_id == body.device_id))
-                token = "gt_" + secrets.token_urlsafe(32)
-                expires = now() + SESSION_LIFETIME
-                db.add(ProviderSession(token_hash=hashlib.sha256(token.encode()).hexdigest(), user_id=login.user_id,
-                                       device_id=body.device_id, expires_at=expires))
-            response.headers["Cache-Control"] = "no-store"
-            return {"access_token": token, "token_type": "bearer", "expires_at": expires.isoformat() + "Z",
-                    "account": {"displayName": body.username, "deviceId": body.device_id}}
+                token, expires = new_session(db, login.user_id, body.device_id)
+            return session_reply(response, token, expires, body.username, body.device_id)
         except IntegrityError:
             raise HTTPException(409, "Account changed during sign-in. Please try again.") from None
         finally:
@@ -144,6 +164,26 @@ def add_auth_routes(app, sessions):
     @app.post("/v1/provider/auth/login")
     def login(body: Credentials, request: Request, response: Response):
         return authenticate(body, request, response, False)
+
+    @app.post("/v1/provider/auth/refresh")
+    def refresh(body: RefreshBody, request: Request, response: Response):
+        """Swap a valid session for a new one on the same device; the old token stops working."""
+        auth = request.headers.get("Authorization", "")
+        if not auth.startswith("Bearer "):
+            raise HTTPException(401, "Sign in first.")
+        throttle(sessions, "refresh:ip:" + client_address(request), 30)
+        digest = hashlib.sha256(auth[7:].encode()).hexdigest()
+        with sessions.begin() as db:
+            session = db.get(ProviderSession, digest)
+            if session is None or session.expires_at <= now() or session.device_id != body.device_id:
+                raise HTTPException(401, "Sign in again.")
+            user = db.get(User, session.user_id)
+            login = db.scalar(select(ProviderLogin).where(ProviderLogin.user_id == session.user_id))
+            if user is None or user.role != "provider" or login is None:
+                raise HTTPException(401, "Sign in again.")
+            db.delete(session)
+            token, expires = new_session(db, user.id, body.device_id)
+        return session_reply(response, token, expires, login.username, body.device_id)
 
     @app.post("/v1/provider/auth/logout", status_code=204)
     def logout(request: Request):

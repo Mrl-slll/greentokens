@@ -1,12 +1,12 @@
-# Windows distribution: 0.3.1 unsigned test release and future signing
+# Windows distribution: unsigned test releases (0.3.1, 0.4.0) and future signing
 
-Version 0.3.1 has a one-time unsigned preview path for testing before identity verification. It does not establish SmartScreen reputation or bypass a security block. Future public release tags still require Windows signing and a permanent server address. The app, provider authentication, worker, FastAPI, Ray and MySQL are unchanged.
+Versions 0.3.1 and 0.4.0 have an unsigned preview path for testing before identity verification. It does not establish SmartScreen reputation or bypass a security block. Future public release tags still require Windows signing and a permanent server address. The app, provider authentication, worker, FastAPI, Ray and MySQL are unchanged.
 
 ## Findings
 
 - GitHub builds for commit `e5d1cb1` succeeded. The official 0.3.0 Windows asset is present; a combined artifact/download check is recorded in the task report.
 - The provider download page and guides target 0.3.1. These links work only after its release is published.
-- The release workflow creates a draft, uploads both installers plus SHA256SUMS.txt, checks uploaded digests, then publishes. Failed uploads remain private drafts. Existing versions are never overwritten. Version 0.3.1 alone is explicitly labeled unsigned; later tags still require signing.
+- The release workflow creates a draft, uploads both installers plus SHA256SUMS.txt, checks uploaded digests, then publishes. Failed uploads remain private drafts. Existing versions are never overwritten. Only the tags listed in `UNSIGNED_PREVIEW_TAGS` (0.3.1, 0.4.0) are labeled unsigned; other tags still require signing.
 - The observed uncommon-download warning is consistent with the confirmed unsigned installer. The separate Edge failure is not proven to be caused by the app. Defender history was inaccessible in the earlier inspection; organizational policy and network/browser failures have not been ruled out. Signing cannot override them.
 
 ## Options and costs (checked November 17, 2026)
@@ -27,7 +27,7 @@ Sources: [Microsoft pricing](https://learn.microsoft.com/azure/artifact-signing/
 4. Set repository variable `WINDOWS_SIGNING_RUNNER` to the runner labels as JSON, e.g. `["self-hosted","Windows","X64","provider-signing"]`. Set `WINDOWS_CERT_THUMBPRINT` in the signing environment to the certificate's public 40-character fingerprint. Set `WINDOWS_PUBLISHER` in both signing and release environments to the certificate's exact legal publisher CN. The runner needs Node, Rust/build tools and the Windows SDK. Hardware-provider credentials stay in its protected service configuration, not source files.
 5. Set `GT_PROVIDER_SERVER` to a permanent HTTPS origin pointing to the backend. Signed release builds reject expiring `trycloudflare.com` quick tunnels. The backend can remain on this PC, but hostname ownership/tunnel configuration is a separate prerequisite; no domain has been purchased.
 6. Increment package.json, its lockfile metadata, Cargo.toml, Cargo.lock as applicable, and tauri.conf.json together. Use a new signed-release tag, such as `provider-v0.3.2`, only after the matching version is reviewed.
-7. Except for the one-time 0.3.1 unsigned preview, tag builds invoke Tauri's `signCommand` for the app executable and installer, using SHA-256 and an RFC3161 timestamp. Signature trust, configured signer and timestamp are required before upload. Any signing failure blocks publishing. The uploaded Windows checksum is generated **after** signing. Both platform jobs must succeed before publication.
+7. Except for the listed unsigned previews, tag builds invoke Tauri's `signCommand` for the app executable and installer, using SHA-256 and an RFC3161 timestamp. Signature trust, configured signer and timestamp are required before upload. Any signing failure blocks publishing. The uploaded Windows checksum is generated **after** signing. Both platform jobs must succeed before publication.
 
 The signing hook uses [Tauri 2's custom sign command](https://v2.tauri.app/distribute/sign/windows/), checked against the installed CLI 2.12.4 schema, and [Windows SDK SignTool](https://learn.microsoft.com/windows/win32/seccrypto/signtool). GitHub environments, certificate access and paid accounts have not been provisioned automatically.
 

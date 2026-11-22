@@ -56,6 +56,8 @@ export function createMockProviderService({ delayMs = 700, now = () => Date.now(
     options,
     signIn: authenticate,
     signUp: authenticate,
+    // The demo never remembers a sign-in.
+    async restore() { return null; },
     async signOut() {
       signedIn = false;
       activeSince = null;

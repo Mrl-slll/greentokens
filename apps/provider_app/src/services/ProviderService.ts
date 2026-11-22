@@ -18,6 +18,8 @@ export interface ProviderService {
   signIn(credentials: Credentials): Promise<Account>;
   signUp(credentials: Credentials): Promise<Account>;
   signOut(): Promise<void>;
+  /** Sign-in remembered securely from an earlier launch, if still valid. */
+  restore(): Promise<Account | null>;
   /** One-time setup after the owner agrees (installs training packages; minutes the first time). */
   prepare(): Promise<PrepareResult>;
   /** Resolves once the worker is connected to the GreenTokens server. */

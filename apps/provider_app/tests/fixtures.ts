@@ -8,6 +8,7 @@ export function fakeAuth(): ProviderAuth {
   let deviceId: string | null = null;
   return {
     async authenticate(_mode, credentials) { deviceId = credentials.deviceId; return { displayName: credentials.username, deviceId }; },
+    async restore() { return null; },
     connection() { if (!deviceId) throw new ProviderError("Please sign in first."); return { server: "https://gt.example.com", key: TEST_KEY, deviceId }; },
     async signOut() { deviceId = null; },
   };

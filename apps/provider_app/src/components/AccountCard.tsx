@@ -48,7 +48,7 @@ export function AccountCard() {
         <div className="flex flex-wrap gap-2"><Button type="submit" variant="primary" disabled={busy}>{authenticating ? "Please wait..." : mode === "signup" ? "Create account" : "Sign in"}</Button>
           <Button disabled={busy} onClick={() => { setMode(mode === "login" ? "signup" : "login"); setPassword(""); setConfirmation(""); setError(""); }}>{mode === "login" ? "New here? Create account" : "Already have an account? Sign in"}</Button></div>
       </form>
-      <p className="mt-3 text-xs text-slate-500">Sign in again after reopening the app. Your password is never saved by GreenTokens.</p>
+      <p className="mt-3 text-xs text-slate-500">This computer stays signed in (kept securely by Windows or macOS) until you sign out. Your password is never saved.</p>
     </>}
     {(error || authError) && <p role="alert" className="mt-3 text-sm text-red-800">{error || authError}</p>}
   </section>;

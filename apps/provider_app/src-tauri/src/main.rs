@@ -3,6 +3,7 @@
 
 mod agent;
 mod hardware;
+mod session;
 mod usage;
 
 use tauri::Manager;
@@ -15,7 +16,10 @@ fn main() {
             agent::worker_start,
             agent::worker_stop,
             agent::worker_state,
-            usage::live_usage
+            usage::live_usage,
+            session::session_save,
+            session::session_load,
+            session::session_clear
         ])
         .on_window_event(|window, event| {
             // Stop sharing when the app closes; nothing keeps running in the background.

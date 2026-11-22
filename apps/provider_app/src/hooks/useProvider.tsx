@@ -5,7 +5,8 @@ import { DEFAULT_PREFERENCES, type Account, type Activity, type HardwareResult, 
 
 const STORAGE_KEY = "greentokens.provider.v1";
 
-// Only non-secret device settings are remembered. Account/session are memory-only.
+// Only non-secret device settings are kept here. The sign-in session lives in the OS secure store
+// (see providerAuth.ts); the password is never stored.
 interface Saved { consent: boolean; preferences: Preferences;
   deviceId: string; accountDevices: Record<string, string>; setupDone: boolean; setupNote: string }
 
@@ -88,6 +89,16 @@ export function ProviderProvider({ service, detectHardware, children }: { servic
     detectHardware().then(setHardware, () => setHardware({ status: "unavailable", reason: "failed", message: "We couldn't read this computer's hardware details." }));
   }, [detectHardware]);
   useEffect(refreshHardware, [refreshHardware]);
+
+  // Reopening the app: stay signed in if this computer remembered a valid sign-in. Runs in the
+  // background; a manual sign-in meanwhile wins. Sharing never resumes by itself: the owner presses Connect.
+  useEffect(() => {
+    let cancelled = false;
+    service.restore().then((restored) => {
+      if (!cancelled && restored) setAccount((existing) => existing ?? restored);
+    }, () => undefined);
+    return () => { cancelled = true; };
+  }, [service]);
 
   // Poll activity for the lifetime of the app.
   useEffect(() => {

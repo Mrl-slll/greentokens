@@ -214,7 +214,7 @@ def allow_firewall():
 #   GT_SERVER (https URL), GT_PROVIDER_KEY, GT_DEVICE_ID, GT_DEVICE_NAME, GT_HOME (app data folder)
 # The app stops the worker by creating GT_HOME/worker.stop. State for the app: GT_HOME/worker-state.json
 # ---------------------------------------------------------------------------------------------
-AGENT_VERSION = "0.3.1"
+AGENT_VERSION = "0.4.0"
 LOG_TAIL_BYTES = 60_000
 
 

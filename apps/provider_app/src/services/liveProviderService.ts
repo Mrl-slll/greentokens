@@ -39,6 +39,7 @@ export function createLiveProviderService(bridge: Bridge = tauriBridge, now = ()
     mode: "live",
     signIn: (credentials) => auth.authenticate("login", credentials),
     signUp: (credentials) => auth.authenticate("signup", credentials),
+    restore: () => auth.restore(),
     async signOut() { await call(() => bridge.workerStop()); connectedSince = null; await auth.signOut(); },
     async prepare(): Promise<PrepareResult> {
       const r = await call(() => bridge.agent("setup"));

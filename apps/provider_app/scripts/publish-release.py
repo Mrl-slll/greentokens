@@ -7,7 +7,7 @@ import subprocess
 import sys
 
 NAMES = ('GreenTokens-Provider-Setup.exe', 'GreenTokens-Provider-macOS.dmg')
-UNSIGNED_PREVIEW_TAG = 'provider-v0.3.1'
+UNSIGNED_PREVIEW_TAGS = {'provider-v0.3.1', 'provider-v0.4.0'}  # keep in sync with the workflow
 
 
 def gh(*args, capture=False):
@@ -40,7 +40,7 @@ def main():
     version = json.loads(Path('apps/provider_app/package.json').read_text())['version']
     if tag != 'provider-v' + version:
         raise RuntimeError('Release tag/version mismatch')
-    unsigned_preview = tag == UNSIGNED_PREVIEW_TAG
+    unsigned_preview = tag in UNSIGNED_PREVIEW_TAGS
     if sys.argv[1] == 'prepare':
         publisher = os.environ.get('WINDOWS_PUBLISHER', '').strip()
         if not unsigned_preview and not publisher:

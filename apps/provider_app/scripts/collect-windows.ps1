@@ -1,10 +1,10 @@
 $ErrorActionPreference = 'Stop'
 $installers = @(Get-ChildItem src-tauri/target/release/bundle/nsis/*.exe)
 if ($installers.Count -ne 1) { throw 'Expected exactly one Windows installer.' }
-if ($env:GITHUB_REF_NAME -eq 'provider-v0.3.1') {
+if (($env:UNSIGNED_PREVIEW_TAGS -split ' ') -contains $env:GITHUB_REF_NAME) {
     foreach ($file in @('src-tauri/target/release/greentokens-provider.exe', $installers[0].FullName)) {
         if ((Get-AuthenticodeSignature -LiteralPath $file).Status -ne 'NotSigned') {
-            throw 'The 0.3.1 unsigned preview must not be labeled unsigned if a signature is present.'
+            throw 'An unsigned preview must not be labeled unsigned if a signature is present.'
         }
     }
 } elseif ($env:GITHUB_REF -like 'refs/tags/provider-v*') {

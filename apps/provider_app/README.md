@@ -47,9 +47,9 @@ The native bridge narrows available actions; it does not turn approved subproces
 
 ## Authentication and persistence
 
-Passwords and sessions stay in memory on the client. The server stores salted scrypt password hashes and session-token hashes. Sessions expire after 24 hours and are bound to a device ID. Re-signing in on the same device replaces that account's prior session there. Sign-out stops the worker and attempts server revocation.
+Passwords stay in memory on the client and are never stored. The session token is kept in the OS secure store (Windows Credential Manager / macOS Keychain, via `src-tauri/src/session.rs` and the `keyring` crate) and swapped for a new one on each launch through `POST /v1/provider/auth/refresh`. The server stores salted scrypt password hashes and session-token hashes. Sessions expire after 30 days without renewal and are bound to a device ID. Re-signing in on the same device replaces that account's prior session there. Sign-out stops the worker and attempts server revocation.
 
-Account credentials are not group codes. Other computers sign in independently. Remembered hardware setup/preferences do not imply persistent authentication: reopening the app requires sign-in. An offline logout cannot guarantee immediate server-side revocation, though expiry remains in effect.
+Account credentials are not group codes. Other computers sign in independently. Reopening the app restores the remembered sign-in in the background (a manual sign-in wins); it never resumes sharing by itself. If the server is offline or older (no refresh route), the remembered session is used until it expires. An offline logout cannot guarantee immediate server-side revocation, though expiry remains in effect.
 
 The Rust bridge passes credentials to Python through environment variables, not command-line arguments. Do not print worker environments or export them into diagnostic files.
 
@@ -98,7 +98,7 @@ npm.cmd run tauri dev
 npm.cmd run tauri build
 ```
 
-A full distributable also needs bundled resources and platform configuration supplied by the release workflow. Do not assume a bare local build reproduces the published installer. See [delivery](../../.github/README.md) and [Windows distribution](../../docs/windows-distribution.md). Version 0.3.1 is an unsigned test release, not proof of production signing/notarization.
+A full distributable also needs bundled resources and platform configuration supplied by the release workflow. Do not assume a bare local build reproduces the published installer. See [delivery](../../.github/README.md) and [Windows distribution](../../docs/windows-distribution.md). Versions 0.3.1 and 0.4.0 are unsigned test releases, not proof of production signing/notarization.
 
 ## Verification and extension
 

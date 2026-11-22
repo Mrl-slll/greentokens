@@ -22,14 +22,15 @@ concurrency:
 
 env:
   UV_VERSION: "0.13.8"
-  # This one test release is allowed without an Azure-verified signing identity.
-  # Future provider-v* tags still require the signed release path.
-  UNSIGNED_PREVIEW_TAG: "provider-v0.3.1"
+  # These preview releases are allowed without an Azure-verified signing identity.
+  # Every other provider-v* tag still requires the signed release path.
+  # Keep in sync with the list in the job conditions below and in scripts/publish-release.py.
+  UNSIGNED_PREVIEW_TAGS: "provider-v0.3.1 provider-v0.4.0"
 
 jobs:
   windows:
-    runs-on: ${{ startsWith(github.ref, 'refs/tags/provider-v') && github.ref_name != 'provider-v0.3.1' && fromJSON(vars.WINDOWS_SIGNING_RUNNER || '"windows-latest"') || 'windows-latest' }}
-    environment: ${{ startsWith(github.ref, 'refs/tags/provider-v') && github.ref_name != 'provider-v0.3.1' && 'provider-signing' || 'provider-build' }}
+    runs-on: ${{ startsWith(github.ref, 'refs/tags/provider-v') && !contains(fromJSON('["provider-v0.3.1","provider-v0.4.0"]'), github.ref_name) && fromJSON(vars.WINDOWS_SIGNING_RUNNER || '"windows-latest"') || 'windows-latest' }}
+    environment: ${{ startsWith(github.ref, 'refs/tags/provider-v') && !contains(fromJSON('["provider-v0.3.1","provider-v0.4.0"]'), github.ref_name) && 'provider-signing' || 'provider-build' }}
     env:
       GT_WINDOWS_CERT_THUMBPRINT: ${{ vars.WINDOWS_CERT_THUMBPRINT }}
       GT_WINDOWS_PUBLISHER: ${{ vars.WINDOWS_PUBLISHER }}
@@ -58,8 +59,11 @@ jobs:
         env:
           GT_PROVIDER_SERVER: ${{ vars.GT_PROVIDER_SERVER }}
         run: |
-          # The one-time PC-hosted preview uses the address committed with this tag.
-          if [[ "$GITHUB_REF" == refs/tags/provider-v0.3.1 ]]; then unset GT_PROVIDER_SERVER; fi
+          # Preview tags use the address committed with the tag. A temporary quick-tunnel address left
+          # in the repository variable has expired, so the committed (Pi) address wins then too.
+          if [[ " $UNSIGNED_PREVIEW_TAGS " == *" $GITHUB_REF_NAME "* || "$GT_PROVIDER_SERVER" == *.trycloudflare.com* ]]; then
+            unset GT_PROVIDER_SERVER
+          fi
           node scripts/configure-server.mjs
 
       - run: npm ci
@@ -95,7 +99,7 @@ jobs:
           fi
           exit $code
       - name: Require and configure release signing
-        if: startsWith(github.ref, 'refs/tags/provider-v') && github.ref_name != 'provider-v0.3.1'
+        if: startsWith(github.ref, 'refs/tags/provider-v') && !contains(fromJSON('["provider-v0.3.1","provider-v0.4.0"]'), github.ref_name)
         shell: pwsh
         run: ./scripts/configure-signing.ps1
       - name: Build installer
@@ -103,7 +107,7 @@ jobs:
         run: |
           set +e
           signing_args=()
-          if [[ "$GITHUB_REF" == refs/tags/provider-v* && "$GITHUB_REF_NAME" != "$UNSIGNED_PREVIEW_TAG" ]]; then
+          if [[ "$GITHUB_REF" == refs/tags/provider-v* && " $UNSIGNED_PREVIEW_TAGS " != *" $GITHUB_REF_NAME "* ]]; then
             signing_args=(--config src-tauri/tauri.signing.conf.json)
           fi
           npm run tauri build -- "${signing_args[@]}" 2>&1 | tee build.log
@@ -155,7 +159,11 @@ jobs:
         env:
           GT_PROVIDER_SERVER: ${{ vars.GT_PROVIDER_SERVER }}
         run: |
-          if [[ "$GITHUB_REF" == refs/tags/provider-v0.3.1 ]]; then unset GT_PROVIDER_SERVER; fi
+          # Preview tags use the address committed with the tag. A temporary quick-tunnel address left
+          # in the repository variable has expired, so the committed (Pi) address wins then too.
+          if [[ " $UNSIGNED_PREVIEW_TAGS " == *" $GITHUB_REF_NAME "* || "$GT_PROVIDER_SERVER" == *.trycloudflare.com* ]]; then
+            unset GT_PROVIDER_SERVER
+          fi
           node scripts/configure-server.mjs
 
       - run: npm ci

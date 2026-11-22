@@ -4,9 +4,9 @@ You lend this computer's processor and NVIDIA graphics card to approved GreenTok
 You need **one download**. Create your own provider account in the app; no invite code is needed.
 
 ## 1. Install
-Use the [official Releases page](https://github.com/Mrl-slll/greentokens/releases). Current test release: **0.3.1 unsigned preview**. Windows shows **Publisher: Unknown** because no verified code-signing identity is available yet. A signed public release is pending identity verification.
+Use the [official Releases page](https://github.com/Mrl-slll/greentokens/releases). Current test release: **0.4.0 unsigned preview**. Windows shows **Publisher: Unknown** because no verified code-signing identity is available yet. A signed public release is pending identity verification.
 
-- [Windows x64 download (0.3.1 unsigned preview)](https://github.com/Mrl-slll/greentokens/releases/download/provider-v0.3.1/GreenTokens-Provider-Setup.exe): Windows 10/11 x64. If Windows or Edge blocks it, stop and follow the troubleshooting guidance; do not disable protection or override organizational policy.
+- [Windows x64 download (0.4.0 unsigned preview)](https://github.com/Mrl-slll/greentokens/releases/download/provider-v0.4.0/GreenTokens-Provider-Setup.exe): Windows 10/11 x64. If Windows or Edge blocks it, stop and follow the troubleshooting guidance; do not disable protection or override organizational policy.
 - Mac: download the `.dmg` from the same release. This preview is not notarized; if blocked, contact the operator.
 - Linux: no installer yet.
 
@@ -23,7 +23,7 @@ For **Couldn't download**, open Edge Downloads (Ctrl+J) for the exact error. For
 4. It says **Connected**. Done. Leave the app open while you want to share the computer.
 
 The computer connects to GreenTokens by itself: no network settings, no firewall changes, no other computers to join.
-It reconnects after a Wi-Fi change while the app is open. After reopening the app, **sign in again**, then press the power button. Sessions last up to 24 hours. The app does not save your password or session token.
+It reconnects after a Wi-Fi change while the app is open. After reopening the app you stay signed in: just press the power button. The sign-in is kept securely by Windows (Credential Manager) or macOS (Keychain) and renewed each time you open the app; it lapses after 30 days without use. **Sign out** forgets it. The app never saves your password, and it does not start sharing by itself.
 
 Keep your password safe: password recovery is not available in this pilot. The operator's server PC and tunnel must be running. If its public address changes, the operator needs to provide an updated app; creating another account will not fix a connection error.
 
