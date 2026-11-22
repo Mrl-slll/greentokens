@@ -1,74 +1,85 @@
 import { expect, it, vi } from "vitest";
-import { createLiveProviderService, newGroupToken, type AgentCall } from "../src/services/liveProviderService";
+import { createLiveProviderService, type Bridge } from "../src/services/liveProviderService";
 import { ProviderError } from "../src/services/ProviderService";
+import { fakeAuth, credentials, TEST_KEY } from "./fixtures";
 import { cpusFor } from "../src/hooks/useProvider";
-import { DEFAULT_PREFERENCES, GROUP_CODE_RE } from "../src/types/provider";
+import { DEFAULT_PREFERENCES } from "../src/types/provider";
 
-const CODE = "GT1-192.168.1.20-0123456789abcdef0123456789abcdef";
-const okCheck = { ok: true, lan_ip: "192.168.1.30", firewall: true, network_private: true };
+const context = { deviceId: credentials.deviceId, deviceName: "RTX-PC-1", cpus: 4 };
 
-function fakeAgent(replies: Record<string, object>) {
-  return vi.fn<AgentCall>(async ({ action }) => ({ ok: true, ...(replies[action] ?? {}) }) as never);
+function fakeBridge(states: Record<string, unknown>[], setup: Record<string, unknown> = {}) {
+  let i = 0;
+  const bridge = {
+    agent: vi.fn(async () => ({ ok: true, ...setup })),
+    workerStart: vi.fn(async () => ({ ok: true, running: true })),
+    workerStop: vi.fn(async () => ({ ok: true, running: false })),
+    workerState: vi.fn(async () => states[Math.min(i++, states.length - 1)]),
+  };
+  return bridge as typeof bridge & Bridge;
 }
-
-it("joins with the code and processor count, after checking the network", async () => {
-  const call = fakeAgent({ check: okCheck, join: { connected: true } });
-  const service = createLiveProviderService(call);
-  await service.start(DEFAULT_PREFERENCES, { group: { role: "member", code: CODE }, cpus: 3 });
-  expect(call.mock.calls.map(([a]) => a.action)).toEqual(["check", "join"]);
-  expect(call.mock.calls[1][0]).toEqual({ action: "join", code: CODE, cpus: 3 });
-});
-
-it("asks for the firewall permission only when it's missing, and hosts as leader", async () => {
-  const call = fakeAgent({ check: { ...okCheck, firewall: false } });
-  await createLiveProviderService(call).start(DEFAULT_PREFERENCES, { group: { role: "host", code: CODE }, cpus: 1 });
-  expect(call.mock.calls.map(([a]) => a.action)).toEqual(["check", "firewall", "host"]);
-});
-
-it("refuses to connect on a Public network with a plain-English fix", async () => {
-  const call = fakeAgent({ check: { ...okCheck, network_private: false } });
-  await expect(createLiveProviderService(call).start(DEFAULT_PREFERENCES, { group: { role: "member", code: CODE }, cpus: 1 }))
-    .rejects.toThrow(/set to Public/);
-  expect(call.mock.calls.map(([a]) => a.action)).toEqual(["check"]);
-});
-
-it("passes agent errors through as friendly messages and never claims a connection", async () => {
-  const call = vi.fn<AgentCall>(async ({ action }) => (action === "join" ? { ok: false, error: "Couldn't reach the group leader." } : { ...okCheck }));
-  const service = createLiveProviderService(call);
-  const p = service.start(DEFAULT_PREFERENCES, { group: { role: "member", code: CODE }, cpus: 1 });
-  await expect(p).rejects.toBeInstanceOf(ProviderError);
-  await expect(p).rejects.toThrow(/group leader/);
-  expect((await service.getActivity()).groupNodes).toBeNull();
-});
-
-it("reports group size from status, throttled", async () => {
+const service = (bridge: Bridge, timeout = 5000) => {
   let t = 0;
-  const call = fakeAgent({ check: okCheck, status: { connected: true, nodes: 2 } });
-  const service = createLiveProviderService(call, () => t);
-  await service.start(DEFAULT_PREFERENCES, { group: { role: "host", code: CODE }, cpus: 1 });
-  await service.getActivity();
-  await new Promise((r) => setTimeout(r, 0));
-  expect((await service.getActivity()).groupNodes).toBe(2);
-  const statusCalls = call.mock.calls.filter(([a]) => a.action === "status").length;
-  await service.getActivity();
-  expect(call.mock.calls.filter(([a]) => a.action === "status").length).toBe(statusCalls); // within 10 s
-  t = 11_000;
-  await service.getActivity();
-  expect(call.mock.calls.filter(([a]) => a.action === "status").length).toBe(statusCalls + 1);
+  return createLiveProviderService(bridge, () => t, async (ms) => { t += ms; }, timeout, fakeAuth());
+};
+
+it("one-click setup reports what was installed and whether the GPU is usable", async () => {
+  const bridge = fakeBridge([], { torch: "2.15.0+cu132", gpu: "NVIDIA GeForce RTX 5070", gpu_ready: true, note: "GPU support installed" });
+  expect(await service(bridge).prepare()).toEqual({ torch: "2.15.0+cu132", gpu: "NVIDIA GeForce RTX 5070", gpuReady: true, note: "GPU support installed" });
+  expect(bridge.agent).toHaveBeenCalledWith("setup");
 });
 
-it("pause stops the node", async () => {
-  const call = fakeAgent({ check: okCheck });
-  const service = createLiveProviderService(call);
-  await service.start(DEFAULT_PREFERENCES, { group: { role: "host", code: CODE }, cpus: 1 });
-  await service.pause();
-  expect(call.mock.calls.at(-1)?.[0]).toEqual({ action: "stop" });
+it("connects outward with the signed-in session and resolves only once the worker is online", async () => {
+  const bridge = fakeBridge([{ state: "starting", running: true }, { state: "online", running: true }]);
+  const s = service(bridge);
+  await s.signIn(credentials);
+  await s.start(DEFAULT_PREFERENCES, context);
+  expect(bridge.workerStart).toHaveBeenCalledWith({ server: "https://gt.example.com", key: TEST_KEY, deviceId: context.deviceId, name: "RTX-PC-1" });
+  expect(bridge.workerState).toHaveBeenCalledTimes(2);
 });
 
-it("makes valid group tokens and derives processor counts", () => {
-  expect(GROUP_CODE_RE.test(`GT1-192.168.1.20-${newGroupToken()}`)).toBe(true);
-  const hw = { status: "ok" as const, hardware: { cpuModel: "x", cores: 8, threads: 16, ramGb: 16, gpus: [], os: "", hostname: "" } };
+it("requires sign-in and explains an expired session without staying half-connected", async () => {
+  await expect(service(fakeBridge([])).start(DEFAULT_PREFERENCES, context)).rejects.toThrow(/sign in/);
+  const bridge = fakeBridge([{ state: "error", error: "Your GreenTokens session expired or was revoked. Sign out and sign in again." }]);
+  const s = service(bridge);
+  await s.signIn(credentials);
+  const p = s.start(DEFAULT_PREFERENCES, context);
+  await expect(p).rejects.toBeInstanceOf(ProviderError);
+  await expect(p).rejects.toThrow(/session expired/);
+  expect(bridge.workerStop).toHaveBeenCalled();
+});
+
+it("gives up with a clear message when the server can't be reached in time", async () => {
+  const bridge = fakeBridge([{ state: "reconnecting", running: true }]);
+  const s = service(bridge, 3000);
+  await s.signIn(credentials);
+  await expect(s.start(DEFAULT_PREFERENCES, context)).rejects.toThrow(/Couldn't reach the GreenTokens server/);
+  expect(bridge.workerStop).toHaveBeenCalled();
+});
+
+it("pause stops the worker; nothing ever runs ray stop", async () => {
+  const bridge = fakeBridge([{ state: "online" }]);
+  const s = service(bridge);
+  await s.signIn(credentials);
+  await s.start(DEFAULT_PREFERENCES, context);
+  await s.pause();
+  expect(bridge.workerStop).toHaveBeenCalledTimes(1);
+  expect(bridge.agent).not.toHaveBeenCalledWith("stop");
+});
+
+it("activity shows the real job and its progress while working", async () => {
+  const bridge = fakeBridge([{ state: "online" }, { state: "working", running: true,
+    job: { id: "job-1", workload: "text_finetune", started: 100, progress: { step: 30, total: 63 } } }]);
+  const s = service(bridge);
+  await s.signIn(credentials);
+  await s.start(DEFAULT_PREFERENCES, context);
+  const a = await s.getActivity();
+  expect(a.workerState).toBe("working");
+  expect(a.currentJob?.name).toBe("text_finetune");
+  expect(a.jobProgress).toEqual({ step: 30, total: 63 });
+});
+
+it("offers the chosen share of processor threads", () => {
+  const hw = { status: "ok" as const, hardware: { cpuModel: "x", cores: 8, threads: 16, ramGb: 16, gpus: [], os: "Windows", hostname: "PC" } };
   expect(cpusFor(50, hw)).toBe(8);
-  expect(cpusFor(25, hw)).toBe(4);
-  expect(cpusFor(10, null)).toBe(1);
+  expect(cpusFor(1, null)).toBe(1);
 });

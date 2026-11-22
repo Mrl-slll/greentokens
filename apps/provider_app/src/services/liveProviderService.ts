@@ -1,94 +1,98 @@
-// LIVE: drives the bundled agent (src-tauri/agent/gt_agent.py) through the Tauri `agent` command.
-// Connecting really starts or joins a private Ray group on the local network.
+// LIVE: drives the bundled agent (src-tauri/agent/gt_agent.py) through Tauri commands.
+// The worker connects OUTWARD to the GreenTokens server (no groups, no Ray on this computer),
+// asks for approved work, runs it and returns the results. It reconnects by itself.
 import { invoke } from "@tauri-apps/api/core";
 import { ProviderError, type ProviderService, type StartContext } from "./ProviderService";
-import type { Activity, Group, Preferences, PrepareResult } from "../types/provider";
+import type { Activity, Preferences, PrepareResult, WorkerState } from "../types/provider";
+import { createProviderAuth, type ProviderAuth } from "./providerAuth";
 
-type Reply = { ok: boolean; error?: string } & Record<string, unknown>;
-export type AgentCall = (args: { action: string; cpus?: number; code?: string }) => Promise<Reply>;
+type Reply = { ok?: boolean; error?: string } & Record<string, unknown>;
 
-const tauriAgent: AgentCall = (args) => invoke<Reply>("agent", args);
-const STATUS_EVERY_MS = 10_000;
+export interface Bridge {
+  agent(action: "setup" | "capabilities"): Promise<Reply>;
+  workerStart(args: { server: string; key: string; deviceId: string; name: string }): Promise<Reply>;
+  workerStop(): Promise<Reply>;
+  workerState(): Promise<Reply>;
+}
 
-export function createLiveProviderService(call: AgentCall = tauriAgent, now = () => Date.now()): ProviderService {
-  let group: Group | null = null;
+const tauriBridge: Bridge = {
+  agent: (action) => invoke<Reply>("agent", { action }),
+  workerStart: (args) => invoke<Reply>("worker_start", args),
+  workerStop: () => invoke<Reply>("worker_stop"),
+  workerState: () => invoke<Reply>("worker_state"),
+};
+
+const STATES: WorkerState[] = ["stopped", "starting", "online", "working", "reconnecting", "error"];
+const asState = (v: unknown): WorkerState => (STATES.includes(v as WorkerState) ? (v as WorkerState) : "stopped");
+
+export function createLiveProviderService(bridge: Bridge = tauriBridge, now = () => Date.now(),
+  sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms)), startTimeoutMs = 90_000,
+  auth: ProviderAuth = createProviderAuth()): ProviderService {
   let connectedSince: number | null = null;
-  let nodes: number | null = null;
-  let leaderReachable = true;
-  let lastStatus = Number.NEGATIVE_INFINITY; // never polled
-  let polling = false;
 
-  async function agent(args: Parameters<AgentCall>[0]): Promise<Reply> {
-    let reply: Reply;
-    try { reply = await call(args); }
+  async function call<T>(fn: () => Promise<T>): Promise<T> {
+    try { return await fn(); }
     catch (e) { throw new ProviderError(typeof e === "string" ? e : "Something went wrong on this computer. Please try again."); }
-    if (!reply.ok) throw new ProviderError(reply.error ?? "Something went wrong on this computer. Please try again.");
-    return reply;
-  }
-
-  async function refreshStatus() {
-    if (!group || connectedSince === null || polling || now() - lastStatus < STATUS_EVERY_MS) return;
-    polling = true;
-    lastStatus = now();
-    try {
-      const s = await agent({ action: "status", code: group.code });
-      leaderReachable = s.connected === true;
-      nodes = typeof s.nodes === "number" && leaderReachable ? s.nodes : null;
-    } catch { leaderReachable = false; nodes = null; }
-    finally { polling = false; }
   }
 
   return {
     mode: "live",
-    async signIn() { return { displayName: "This computer", deviceId: "local" }; },
-    async signOut() { await agent({ action: "stop" }); group = null; connectedSince = null; },
+    signIn: (credentials) => auth.authenticate("login", credentials),
+    signUp: (credentials) => auth.authenticate("signup", credentials),
+    async signOut() { await call(() => bridge.workerStop()); connectedSince = null; await auth.signOut(); },
     async prepare(): Promise<PrepareResult> {
-      const r = await agent({ action: "check" });
-      return { lanIp: String(r.lan_ip ?? ""), firewall: r.firewall === true, networkPrivate: r.network_private === true };
+      const r = await call(() => bridge.agent("setup"));
+      if (r.ok === false) throw new ProviderError(r.error ?? "Setup didn't finish. Please try again.");
+      return { torch: typeof r.torch === "string" ? r.torch : null, gpu: typeof r.gpu === "string" ? r.gpu : null,
+        gpuReady: r.gpu_ready === true, note: typeof r.note === "string" ? r.note : "" };
     },
     async start(_preferences: Preferences, context: StartContext) {
-      if (!context.group) throw new ProviderError("First start a group or join one with a code (below the button).");
-      const check = await agent({ action: "check" });
-      if (check.network_private !== true) {
-        throw new ProviderError("Windows has this network set to Public, which blocks groups. Open Settings → Network & internet → your Wi-Fi or Ethernet network, choose Private, then try again.");
+      const connection = auth.connection();
+      if (connection.deviceId !== context.deviceId) throw new ProviderError("Please sign in on this computer first.");
+      await call(() => bridge.workerStart({ server: connection.server, key: connection.key, deviceId: context.deviceId, name: context.deviceName }));
+      const deadline = now() + startTimeoutMs;
+      while (now() < deadline) {
+        const s = await call(() => bridge.workerState());
+        const state = asState(s.state);
+        if (state === "online" || state === "working") { connectedSince = now(); return; }
+        if (state === "error") {
+          await call(() => bridge.workerStop());
+          throw new ProviderError(typeof s.error === "string" ? s.error : "This computer couldn't connect to GreenTokens.");
+        }
+        await sleep(1000);
       }
-      if (check.firewall !== true) await agent({ action: "firewall" }); // one-time Windows permission prompt
-      await agent({ action: context.group.role === "host" ? "host" : "join", code: context.group.code, cpus: context.cpus });
-      group = context.group;
-      connectedSince = now();
-      leaderReachable = true;
-      nodes = null;
-      lastStatus = Number.NEGATIVE_INFINITY; // poll right away
+      await call(() => bridge.workerStop());
+      throw new ProviderError("Couldn't reach the GreenTokens server. Check your connection and ask the operator whether the server is running.");
     },
     async pause() {
-      await agent({ action: "stop" });
+      await call(() => bridge.workerStop());
       connectedSince = null;
-      nodes = null;
     },
     async savePreferences() {
-      // The processor share is applied on the next Connect; memory isn't enforced by Ray's CLI.
+      // The worker runs one job at a time; processor and memory limits aren't enforced yet.
       return { enforced: false };
     },
     async getActivity(): Promise<Activity> {
-      void refreshStatus();
+      let s: Reply = { state: "stopped" };
+      try { s = await bridge.workerState(); } catch { /* app is closing or not installed */ }
+      const state = s.running === false && connectedSince !== null ? "stopped" : asState(s.state);
+      const job = (s.job ?? null) as { id?: string; workload?: string; started?: number; progress?: { step?: number; total?: number } } | null;
+      const startedMs = typeof job?.started === "number" ? job.started * 1000 : now();
       return {
-        connection: "lan",
-        currentJob: null,
+        connection: "online",
+        currentJob: state === "working" && job?.id
+          ? { id: job.id, name: job.workload ?? "Training job", startedAt: startedMs, seconds: Math.max(0, (now() - startedMs) / 1000), status: "running" }
+          : null,
         history: [],
         completedCount: 0,
         totalSeconds: connectedSince === null ? 0 : (now() - connectedSince) / 1000,
         cpuPercent: 0,
         gpuPercent: null,
-        groupNodes: connectedSince === null ? null : nodes,
-        leaderReachable,
+        workerState: state,
+        workerError: typeof s.error === "string" ? s.error : null,
+        jobProgress: typeof job?.progress?.step === "number" && typeof job?.progress?.total === "number"
+          ? { step: job.progress.step, total: job.progress.total } : null,
       };
     },
   };
-}
-
-/** 16 random bytes as lowercase hex: the group's access token. */
-export function newGroupToken(): string {
-  const bytes = new Uint8Array(16);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }

@@ -1,16 +1,17 @@
+import { useLiveUsage } from "../hooks/useLiveUsage";
 import { Power } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useProvider } from "../hooks/useProvider";
 import { formatGb } from "../services/hardware";
 import { Button, formatDuration } from "../components/ui";
-import { GroupCard } from "../components/GroupCard";
+import { AccountCard } from "../components/AccountCard";
 import type { Participation, Preferences } from "../types/provider";
 
 const LABEL: Record<Participation, { title: string; detail: string }> = {
   paused: { title: "Not connected", detail: "Your computer isn't sharing anything." },
-  starting: { title: "Connecting…", detail: "Joining your group. The first time can take a few minutes." },
-  active: { title: "Connected", detail: "Your computer is available to your group." },
-  pausing: { title: "Disconnecting…", detail: "Leaving the group." },
+  starting: { title: "Connecting…", detail: "Connecting to GreenTokens." },
+  active: { title: "Connected", detail: "Your computer can receive approved GreenTokens jobs." },
+  pausing: { title: "Disconnecting…", detail: "Stopping new work." },
 };
 
 export type Level = "light" | "balanced" | "max";
@@ -29,7 +30,7 @@ export function currentLevel(p: Preferences, ramGb: number | null): Level | null
 }
 
 export function HomeScreen() {
-  const { participation, start, pause, controlError, preferences, savePreferences, hardware, activity, consent, setConsent, service, group, preparing } = useProvider();
+  const { participation, start, pause, controlError, preferences, savePreferences, hardware, activity, consent, setConsent, service, account, preparing } = useProvider();
   const live = service.mode === "live";
   const [asking, setAsking] = useState(false);
   const ramGb = hardware?.status === "ok" ? hardware.hardware.ramGb : null;
@@ -37,6 +38,7 @@ export function HomeScreen() {
   const connected = participation === "active";
   const busy = participation === "starting" || participation === "pausing";
   const level = currentLevel(preferences, ramGb);
+  const { usage } = useLiveUsage(live && connected);
 
   // Session timer, like a VPN client.
   const [since, setSince] = useState<number | null>(null);
@@ -53,7 +55,7 @@ export function HomeScreen() {
       <button
         type="button"
         onClick={() => { if (participation !== "paused") void pause(); else if (!consent) setAsking(true); else void start(); }}
-        disabled={participation === "pausing" || (participation === "paused" && (!group || preparing))}
+        disabled={participation === "pausing" || (participation === "paused" && (!account || preparing))}
         aria-label={participation === "paused" ? "Connect" : "Disconnect"}
         className={`mt-4 flex h-48 w-48 items-center justify-center rounded-full shadow-xl ring-8 transition-colors disabled:cursor-wait ${ring}`}
       >
@@ -65,24 +67,32 @@ export function HomeScreen() {
         <p className="text-slate-600">{label.detail}</p>
         {connected && since !== null && <p className="mt-1 font-mono text-sm text-slate-500">{formatDuration((Date.now() - since) / 1000)}</p>}
         {connected && activity?.currentJob && <p className="mt-1 text-sm text-slate-600">Working on: {activity.currentJob.name}</p>}
-        {connected && activity?.leaderReachable === false && <p className="mt-1 text-sm font-medium text-amber-800">Can't reach the group leader right now.</p>}
-        {participation === "paused" && !group && <p className="mt-1 text-sm text-slate-500">Start or join a group below first.</p>}
+        {live && connected && usage && !usage.warmingUp && <p className="mt-1 text-sm text-slate-600">GreenTokens is using {usage.greentokensCpuPercent}% of this computer right now.</p>}
+        {preparing && <p className="mt-1 text-sm font-medium text-emerald-800">Setting up this computer… The first time downloads the training packages (several GB on GPU computers) and can take 10-20 minutes. Keep the app open.</p>}
+        {connected && activity?.workerState === "reconnecting" && <p className="mt-1 text-sm font-medium text-amber-800">Connection lost. Reconnecting by itself…</p>}
+        {connected && activity?.workerState === "error" && <p className="mt-1 text-sm font-medium text-red-800">{activity.workerError}</p>}
+        {participation === "paused" && !account && <p className="mt-1 text-sm text-slate-500">Sign in below before connecting.</p>}
       </div>
       {asking && !consent && participation === "paused" && (
         <section role="dialog" aria-label="Before you connect" className="w-full rounded-2xl border border-emerald-200 bg-white p-5 text-left shadow-sm">
-          <h2 className="font-semibold">Before you connect</h2>
-          <p className="mt-1 text-sm text-slate-600">While connected, your group can run computing work on this computer using the processor share you choose. That can use more power and make it feel slower. You can disconnect any time, it never connects by itself, and closing the app disconnects.</p>
-          <p className="mt-2 text-sm font-medium text-slate-800">Only connect to groups run by people you trust: the group leader can run programs on this computer while you're connected.</p>
+          <h2 className="font-semibold">Allow GreenTokens to set up this computer?</h2>
+          <p className="mt-1 text-sm text-slate-600">The first time, GreenTokens installs what approved jobs need, inside this app's own folder only:</p>
+          <ul className="mt-1 list-disc pl-5 text-sm text-slate-600">
+            <li>a private copy of Python</li>
+            <li>PyTorch, with GPU support if this computer has an NVIDIA graphics card (a few GB)</li>
+            <li>model training libraries (Transformers, Datasets)</li>
+          </ul>
+          <p className="mt-2 text-sm text-slate-600">While connected, GreenTokens sends this computer <strong>approved</strong> training jobs. That uses processor, graphics card and power, and can make the computer slower. You can disconnect any time; closing the app disconnects. Nothing else on your computer is changed.</p>
           {!live && <p className="mt-2 text-xs text-slate-500">Demo version: nothing actually runs on your computer.</p>}
           <div className="mt-4 flex gap-2">
-            <Button variant="primary" onClick={() => { setConsent(true); setAsking(false); void start({ consented: true }); }}>Agree &amp; Connect</Button>
+            <Button variant="primary" onClick={() => { setConsent(true); setAsking(false); void start({ consented: true }); }}>Yes, set up &amp; connect</Button>
             <Button onClick={() => setAsking(false)}>Not now</Button>
           </div>
         </section>
       )}
       {controlError && <p role="alert" className="w-full rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">{controlError}</p>}
 
-      <GroupCard />
+      <AccountCard />
 
       <section className="w-full text-left">
         <h2 className="mb-2 text-sm font-medium text-slate-500">Sharing level</h2>
@@ -105,7 +115,7 @@ export function HomeScreen() {
 
       <div className="grid w-full grid-cols-2 gap-2 text-left">
         {live
-          ? <div className="rounded-xl border border-slate-200 bg-white p-3"><p className="text-xs text-slate-500">Computers in group</p><p className="text-lg font-semibold">{activity?.groupNodes ?? "–"}</p></div>
+          ? <div className="rounded-xl border border-slate-200 bg-white p-3"><p className="text-xs text-slate-500">Right now</p><p className="text-lg font-semibold">{activity?.workerState === "working" ? "Training a job" : connected ? "Waiting for work" : "Not connected"}</p></div>
           : <div className="rounded-xl border border-slate-200 bg-white p-3"><p className="text-xs text-slate-500">Jobs done</p><p className="text-lg font-semibold">{activity?.completedCount ?? 0}</p></div>}
         <div className="rounded-xl border border-slate-200 bg-white p-3"><p className="text-xs text-slate-500">Time shared</p><p className="text-lg font-semibold">{formatDuration(activity?.totalSeconds ?? 0)}</p></div>
       </div>

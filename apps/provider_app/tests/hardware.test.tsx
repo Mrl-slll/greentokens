@@ -33,7 +33,8 @@ it("handles PowerShell 5.1 array shapes and drops software display adapters", ()
 it("mock stops accepting jobs immediately on pause", async () => {
   let t = 0;
   const service = createMockProviderService({ delayMs: 0, now: () => t });
-  await service.start({ cpuPercent: 50, ramGb: 4, gpuEnabled: false, notifications: true, deviceName: "" }, { group: { role: "host", code: "GT1-192.168.1.10-0123456789abcdef0123456789abcdef" }, cpus: 2 });
+  await service.signIn({ username: "test", password: "test-only-password-123", deviceId: "device-0001" });
+  await service.start({ cpuPercent: 50, ramGb: 4, gpuEnabled: false, notifications: true, deviceName: "" }, { deviceId: "device-0001", deviceName: "PC", cpus: 2 });
   t = 20_000;
   const busy = await service.getActivity();
   expect(busy.completedCount).toBeGreaterThan(0);

@@ -1,23 +1,31 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ProviderError, type ProviderService } from "../services/ProviderService";
 import type { HardwareDetector } from "../services/hardware";
-import { newGroupToken } from "../services/liveProviderService";
-import { DEFAULT_PREFERENCES, GROUP_CODE_RE, type Account, type Activity, type Group, type HardwareResult, type Participation, type Preferences } from "../types/provider";
+import { DEFAULT_PREFERENCES, type Account, type Activity, type HardwareResult, type Participation, type Preferences } from "../types/provider";
 
 const STORAGE_KEY = "greentokens.provider.v1";
 
-// Only consent, account, preferences and the group are remembered. Participation is never
-// saved, so the app always opens disconnected.
-interface Saved { consent: boolean; account: Account | null; preferences: Preferences; group: Group | null }
+// Only non-secret device settings are remembered. Account/session are memory-only.
+interface Saved { consent: boolean; preferences: Preferences;
+  deviceId: string; accountDevices: Record<string, string>; setupDone: boolean; setupNote: string }
+
+const newDeviceId = () => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `dev-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`);
 
 function load(): Saved {
-  const fallback: Saved = { consent: false, account: null, preferences: DEFAULT_PREFERENCES, group: null };
+  const fallback: Saved = { consent: false, preferences: DEFAULT_PREFERENCES,
+    deviceId: newDeviceId(), accountDevices: {}, setupDone: false, setupNote: "" };
   try {
     const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "null");
     if (!parsed || typeof parsed !== "object") return fallback;
-    return { consent: parsed.consent === true, account: parsed.account ?? null,
-      preferences: { ...DEFAULT_PREFERENCES, ...(parsed.preferences ?? {}) },
-      group: parsed.group && (parsed.group.role === "host" || parsed.group.role === "member") && GROUP_CODE_RE.test(parsed.group.code) ? parsed.group : null };
+    return { consent: parsed.consent === true,
+      preferences: { cpuPercent: parsed.preferences?.cpuPercent ?? DEFAULT_PREFERENCES.cpuPercent,
+        ramGb: parsed.preferences?.ramGb ?? DEFAULT_PREFERENCES.ramGb,
+        gpuEnabled: parsed.preferences?.gpuEnabled === true, notifications: parsed.preferences?.notifications !== false,
+        deviceName: typeof parsed.preferences?.deviceName === "string" ? parsed.preferences.deviceName : "" },
+      deviceId: typeof parsed.deviceId === "string" && /^[A-Za-z0-9-]{8,64}$/.test(parsed.deviceId) ? parsed.deviceId : fallback.deviceId,
+      accountDevices: Object.fromEntries(Object.entries(parsed.accountDevices ?? {}).filter(([key, value]) =>
+        /^account:[a-z0-9][a-z0-9_-]{2,31}$/.test(key) && typeof value === "string" && /^[A-Za-z0-9-]{8,64}$/.test(value)).map(([key, value]) => [key, value as string])),
+      setupDone: parsed.setupDone === true, setupNote: typeof parsed.setupNote === "string" ? parsed.setupNote : "" };
   } catch { return fallback; }
 }
 function save(s: Saved) {
@@ -31,6 +39,10 @@ interface ProviderContext {
   consent: boolean;
   setConsent(v: boolean): void;
   account: Account | null;
+  authenticate(mode: "login" | "signup", username: string, password: string): Promise<boolean>;
+  signOut(): Promise<void>;
+  authError: string | null;
+  authenticating: boolean;
   /** Forget this device and consent; pauses first. */
   reset(): Promise<void>;
   participation: Participation;
@@ -43,26 +55,28 @@ interface ProviderContext {
   hardware: HardwareResult | null;
   refreshHardware(): void;
   activity: Activity | null;
-  group: Group | null;
-  /** True while the one-time setup / network check runs. */
+  /** True while the one-time setup runs (first Connect, or Repair setup). */
   preparing: boolean;
-  groupError: string | null;
-  createGroup(): Promise<void>;
-  joinGroup(code: string): Promise<boolean>;
-  leaveGroup(): Promise<void>;
+  setupDone: boolean;
+  setupNote: string;
+  repairSetup(): Promise<void>;
 }
 
 const Ctx = createContext<ProviderContext | null>(null);
 
 export function ProviderProvider({ service, detectHardware, children }: { service: ProviderService; detectHardware: HardwareDetector; children: ReactNode }) {
   const [saved, setSaved] = useState<Saved>(load);
+  const [account, setAccount] = useState<Account | null>(null);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [authenticating, setAuthenticating] = useState(false);
   const [participation, setParticipationState] = useState<Participation>("paused");
   const participationRef = useRef<Participation>("paused");
   const [controlError, setControlError] = useState<string | null>(null);
   const [hardware, setHardware] = useState<HardwareResult | null>(null);
   const [activity, setActivity] = useState<Activity | null>(null);
   const [preparing, setPreparing] = useState(false);
-  const [groupError, setGroupError] = useState<string | null>(null);
+  // Also remove any credentials saved by older invite-based versions on first load.
+  useEffect(() => { save(saved); }, [saved]);
 
   // Read through a function so TypeScript doesn't keep narrowing across awaits.
   const current = () => participationRef.current;
@@ -88,25 +102,68 @@ export function ProviderProvider({ service, detectHardware, children }: { servic
     service,
     consent: saved.consent,
     setConsent: (consent) => update({ consent }),
-    account: saved.account,
-    async reset() {
+    account,
+    authError,
+    authenticating,
+    async authenticate(mode, username, password) {
+      if (current() !== "paused" || preparing || authenticating || account) return false;
+      setAuthError(null); setAuthenticating(true);
+      try {
+        const accountKey = "account:" + username.trim().toLowerCase();
+        const deviceId = saved.accountDevices[accountKey] ?? newDeviceId();
+        const credentials = { username, password, deviceId };
+        setAccount(await (mode === "signup" ? service.signUp(credentials) : service.signIn(credentials)));
+        update({ accountDevices: { ...saved.accountDevices, [accountKey]: deviceId } });
+        setControlError(null);
+        return true;
+      } catch (e) { setAuthError(friendly(e, "Could not sign in. Please try again.")); return false; }
+      finally { setAuthenticating(false); }
+    },
+    async signOut() {
+      if (preparing || current() === "starting" || current() === "pausing") return;
+      const previous = current();
+      setParticipation("pausing");
+      setAuthError(null);
+      try { await service.pause(); }
+      catch (e) { setParticipation(previous); setAuthError(friendly(e, "Could not stop sharing. Please disconnect before signing out.")); return; }
+      try { await service.signOut(); }
+      catch (e) { setAuthError(friendly(e, "Signed out locally. The server session will expire automatically.")); }
+      setAccount(null); setControlError(null);
       setParticipation("paused");
-      try { await service.pause(); await service.signOut(); } catch { /* still reset locally */ }
+    },
+    async reset() {
+      if (preparing || authenticating || current() === "starting" || current() === "pausing") return;
+      const previous = current();
+      setParticipation("pausing");
+      try { await service.pause(); }
+      catch (e) { setParticipation(previous); setControlError(friendly(e, "Could not stop sharing. Try disconnecting again.")); return; }
+      setAuthError(null);
+      try { await service.signOut(); } catch (e) { setAuthError(friendly(e, "Signed out locally. The server session will expire automatically.")); }
+      setAccount(null);
+      setParticipation("paused");
       setControlError(null);
-      setGroupError(null);
-      update({ account: null, consent: false, preferences: DEFAULT_PREFERENCES, group: null });
+      update({ consent: false, preferences: DEFAULT_PREFERENCES, setupDone: false, setupNote: "" });
     },
     participation,
     controlError,
     async start(opts) {
-      if (current() !== "paused" || !(saved.consent || opts?.consented)) return;
+      if (current() !== "paused" || preparing || authenticating || !(saved.consent || opts?.consented)) return;
+      if (!account) { setControlError("Sign in below before connecting."); return; }
       setControlError(null); setParticipation("starting");
       try {
-        // First connect registers this device (simulated); there is no separate sign-in step.
-        if (!saved.account) update({ account: await service.signIn() });
-        await service.start(saved.preferences, { group: saved.group, cpus: cpusFor(saved.preferences.cpuPercent, hardware) });
+        if (!saved.setupDone) {
+          // One-time setup after the owner agreed: installs the training packages this computer can use.
+          setPreparing(true);
+          try { const r = await service.prepare(); update({ setupDone: true, setupNote: r.note }); }
+          finally { setPreparing(false); }
+        }
+        if (current() !== "starting") return; // Disconnect may have been pressed during setup.
+        const deviceName = saved.preferences.deviceName || (hardware?.status === "ok" ? hardware.hardware.hostname : "") || "This computer";
+        await service.start(saved.preferences, { deviceId: account.deviceId, deviceName,
+          cpus: cpusFor(saved.preferences.cpuPercent, hardware) });
         // If the user pressed Pause while we were starting, stay paused.
         if (current() === "starting") setParticipation("active");
+        else await service.pause();
       } catch (e) {
         if (current() === "starting") setParticipation("paused");
         setControlError(friendly(e, "Computing could not start. Your computer stays paused."));
@@ -133,36 +190,17 @@ export function ProviderProvider({ service, detectHardware, children }: { servic
     hardware,
     refreshHardware,
     activity,
-    group: saved.group,
     preparing,
-    groupError,
-    async createGroup() {
-      setGroupError(null); setPreparing(true);
-      try {
-        const { lanIp } = await service.prepare();
-        update({ group: { role: "host", code: `GT1-${lanIp}-${newGroupToken()}` } });
-      } catch (e) { setGroupError(friendly(e, "Couldn't set up a group on this computer. Please try again.")); }
+    setupDone: saved.setupDone,
+    setupNote: saved.setupNote,
+    async repairSetup() {
+      if (current() !== "paused") return;
+      setControlError(null); setPreparing(true);
+      try { const r = await service.prepare(); update({ setupDone: true, setupNote: r.note }); }
+      catch (e) { setControlError(friendly(e, "Setup didn't finish. Check the internet connection and try again.")); }
       finally { setPreparing(false); }
     },
-    async joinGroup(code) {
-      const clean = code.trim();
-      setGroupError(null);
-      if (!GROUP_CODE_RE.test(clean)) { setGroupError("That group code doesn't look right. Copy it again from the leader's computer."); return false; }
-      setPreparing(true);
-      try { await service.prepare(); update({ group: { role: "member", code: clean } }); return true; }
-      catch (e) { setGroupError(friendly(e, "Couldn't prepare this computer. Please try again.")); return false; }
-      finally { setPreparing(false); }
-    },
-    async leaveGroup() {
-      if (current() !== "paused") {
-        setParticipation("pausing");
-        try { await service.pause(); } catch { /* stop is best effort; leave anyway */ }
-        setParticipation("paused");
-      }
-      setGroupError(null);
-      update({ group: null });
-    },
-  }), [service, saved, participation, controlError, hardware, refreshHardware, activity, update, preparing, groupError]);
+  }), [service, saved, participation, controlError, hardware, refreshHardware, activity, update, preparing, account, authError, authenticating]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

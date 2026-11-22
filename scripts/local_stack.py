@@ -97,17 +97,47 @@ def seed(sessions):
 
 
 def heartbeat(sessions, ray):
+    """Register every live Ray node (this computer and any that joined the group) as a worker."""
     from core.database.models import Worker, now
-    resources = ray.cluster_resources()
-    node_id = ray.get_runtime_context().get_node_id()
     with sessions.begin() as db:
-        worker = db.get(Worker, node_id)
-        if worker is None:
-            worker = Worker(id=node_id, hostname=socket.gethostname(), cpu_cores=0, ram_gb=0)
-            db.add(worker)
-        worker.cpu_cores = int(resources.get("CPU", 0))
-        worker.ram_gb = resources.get("memory", 0) / 1024**3
-        worker.last_seen_at = now()
+        for node in ray.nodes():
+            if not node.get("Alive"):
+                continue
+            resources = node.get("Resources", {})
+            worker = db.get(Worker, node["NodeID"])
+            if worker is None:
+                worker = Worker(id=node["NodeID"], hostname="", cpu_cores=0, ram_gb=0)
+                db.add(worker)
+            worker.hostname = node.get("NodeManagerHostname") or socket.gethostname()
+            worker.cpu_cores = int(resources.get("CPU", 0))
+            worker.ram_gb = resources.get("memory", 0) / 1024**3
+            worker.last_seen_at = now()
+
+
+def load_agent():
+    """Reuse the provider app's agent (join-code format, ports, token auth) instead of copying it."""
+    import importlib.util
+    path = ROOT / "apps/provider_app/src-tauri/agent/gt_agent.py"
+    spec = importlib.util.spec_from_file_location("gt_agent", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def attach_environment():
+    """--attach: use a group already hosted by the provider agent. The code stays in the environment."""
+    agent = load_agent()
+    code = os.environ.get("GT_GROUP_CODE", "")
+    try:
+        ip, token = agent.parse_code(code)
+    except agent.Friendly as exc:
+        raise RuntimeError(f"Set GT_GROUP_CODE to the group code. {exc}") from None
+    os.environ.update({"RAY_AUTH_MODE": "token", "RAY_AUTH_TOKEN": token,
+                       "RAY_ENABLE_WINDOWS_OR_OSX_CLUSTER": "1",
+                       # The group runs the provider runtime's Python; the backend may differ in patch version.
+                       "RAY_DEFAULT_PYTHON_VERSION_MATCH_LEVEL": "minor",
+                       "GT_RAY_ENDPOINT": "http://127.0.0.1:8265"})
+    return f"{ip}:{agent.GCS_PORT}"
 
 
 def start_api():
@@ -131,9 +161,12 @@ def main():
     parser.add_argument("--prepare", action="store_true")
     parser.add_argument("--generate-migration", action="store_true")
     parser.add_argument("--verify", action="store_true")
+    parser.add_argument("--attach", action="store_true",
+                        help="Use the group hosted by the provider agent (code in GT_GROUP_CODE) instead of a private Ray")
     args = parser.parse_args()
     os.chdir(ROOT)
     configure()
+    gcs_address = attach_environment() if args.attach else None
     settings, engine, sessions, storage = services()
     migrate(args.generate_migration)
     seed(sessions)
@@ -144,26 +177,32 @@ def main():
     import ray
     api = dispatcher = None
     try:
-        for port in (8000, 8265):
+        for port in ((8000,) if args.attach else (8000, 8265)):
             with socket.socket() as probe:
                 if probe.connect_ex(("127.0.0.1", port)) == 0:
                     raise RuntimeError(f"Port {port} is in use; stop the previous local stack first")
-        print("Starting private local Ray Jobs service...", flush=True)
-        try:
-            ray.init(address="local", num_cpus=min(4, os.cpu_count() or 1), num_gpus=0,
-                     include_dashboard=True, dashboard_host="127.0.0.1", dashboard_port=8265,
-                     _node_ip_address="127.0.0.1", logging_level="ERROR")
-        except ValueError as exc:
-            message = str(exc)
-            for name, value in os.environ.items():
-                if value and any(word in name.upper() for word in ("PASSWORD", "SECRET", "TOKEN", "KEY", "URL")):
-                    message = message.replace(value, "[redacted]")
-            print(f"Ray configuration rejected: {message}", flush=True)
-            raise
+        if args.attach:
+            print("Attaching to the GreenTokens group...", flush=True)
+            ray.init(address=gcs_address, logging_level="ERROR")
+        else:
+            print("Starting private local Ray Jobs service...", flush=True)
+            try:
+                ray.init(address="local", num_cpus=min(4, os.cpu_count() or 1), num_gpus=0,
+                         include_dashboard=True, dashboard_host="127.0.0.1", dashboard_port=8265,
+                         _node_ip_address="127.0.0.1", logging_level="ERROR")
+            except ValueError as exc:
+                message = str(exc)
+                for name, value in os.environ.items():
+                    if value and any(word in name.upper() for word in ("PASSWORD", "SECRET", "TOKEN", "KEY", "URL")):
+                        message = message.replace(value, "[redacted]")
+                print(f"Ray configuration rejected: {message}", flush=True)
+                raise
         heartbeat(sessions, ray)
         api = start_api()
         dispatcher = subprocess.Popen([sys.executable, "-m", "core.jobs.dispatcher"], cwd=ROOT)
         print("Local API: http://127.0.0.1:8000/docs (development identities only)", flush=True)
+        if args.attach:
+            print(f"Group computers online: {len([n for n in ray.nodes() if n.get('Alive')])}", flush=True)
         if args.verify:
             from scripts.verify_pipeline import verify
             def restart_api():

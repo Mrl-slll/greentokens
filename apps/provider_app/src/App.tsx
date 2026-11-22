@@ -14,7 +14,7 @@ import { SettingsScreen } from "./screens/Settings";
 type Screen = "home" | "hardware" | "activity" | "settings";
 
 export default function App({ service, detectHardware = defaultDetectHardware }: { service?: ProviderService; detectHardware?: HardwareDetector }) {
-  // Installed app: real groups. Browser preview and tests: the clearly labeled mock.
+  // Installed app: the real worker (connects outward to GreenTokens). Browser preview and tests: the clearly labeled mock.
   const svc = useMemo(() => service ?? (inDesktopApp() ? createLiveProviderService() : createMockProviderService()), [service]);
   return (
     <ProviderProvider service={svc} detectHardware={detectHardware}>
@@ -49,12 +49,13 @@ function Shell() {
         </nav>
         <p className="hidden px-5 py-4 text-sm text-slate-600 md:block">
           Status: <strong>{participation === "active" ? "Connected" : participation === "paused" ? "Not connected" : participation === "starting" ? "Connecting…" : "Disconnecting…"}</strong>
+          <span className="mt-1 block text-xs text-slate-400">Version {__APP_VERSION__}</span>
         </p>
       </aside>
       <div className="flex-1">
         <div role="note" className="border-b border-amber-200 bg-amber-50 px-6 py-2 text-sm text-amber-900">
           {service.mode === "live"
-            ? <><strong>Preview.</strong> Groups connect computers on your local network. GreenTokens jobs aren't sent to groups yet.</>
+            ? <><strong>Preview.</strong> While connected, this computer can receive GreenTokens training jobs. Earnings aren't offered during the pilot.</>
             : <><strong>Demo version.</strong> Connecting and activity are simulated; no jobs run on this computer. Hardware details are real.</>}
         </div>
         <main className="mx-auto max-w-4xl px-6 py-8">

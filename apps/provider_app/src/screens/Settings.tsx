@@ -6,7 +6,7 @@ import type { MockProviderService } from "../services/mockProviderService";
 const isMac = typeof navigator !== "undefined" && /mac/i.test(navigator.platform);
 
 export function SettingsScreen({ onOpenLimits }: { onOpenLimits(): void }) {
-  const { account, preferences, savePreferences, reset, hardware, service } = useProvider();
+  const { account, preferences, savePreferences, reset, hardware, service, repairSetup, preparing, setupDone, setupNote, participation, authenticating } = useProvider();
   const mock = service.mode === "mock" ? (service as MockProviderService) : null;
   const [, rerender] = useState(0);
   const hostname = hardware?.status === "ok" ? hardware.hardware.hostname : "";
@@ -25,12 +25,12 @@ export function SettingsScreen({ onOpenLimits }: { onOpenLimits(): void }) {
         <h1 className="text-2xl font-semibold">Settings</h1>
       </header>
 
-      <Card title="Account" badge={<DemoBadge />}>
+      <Card title="Account" badge={mock ? <DemoBadge /> : undefined}>
         <dl className="grid grid-cols-[max-content_1fr] gap-x-6 gap-y-2 text-sm">
-          <dt className="text-slate-500">Status</dt><dd>{account ? account.displayName : "Not set up yet. This happens on your first Connect."}</dd>
+          <dt className="text-slate-500">Status</dt><dd>{account ? account.displayName : "Sign in or create an account on Home."}</dd>
           <dt className="text-slate-500">Device ID</dt><dd className="font-mono">{account?.deviceId ?? "–"}</dd>
         </dl>
-        <p className="mt-3 text-sm text-slate-500">Real GreenTokens accounts aren't available in this demo.</p>
+        <p className="mt-3 text-sm text-slate-500">{mock ? "This preview simulates accounts." : "Sign out on Home. Your password and session are not saved on this computer."}</p>
       </Card>
 
       <Card title="This computer">
@@ -60,7 +60,7 @@ export function SettingsScreen({ onOpenLimits }: { onOpenLimits(): void }) {
 
       <Card title="About">
         <dl className="grid grid-cols-[max-content_1fr] gap-x-6 gap-y-2 text-sm">
-          <dt className="text-slate-500">Version</dt><dd>{__APP_VERSION__} (demo)</dd>
+          <dt className="text-slate-500">Version</dt><dd>{__APP_VERSION__} ({mock ? "demo" : "preview"})</dd>
         </dl>
         <h3 className="mt-4 font-medium">Uninstalling</h3>
         {isMac ? (
@@ -78,13 +78,21 @@ export function SettingsScreen({ onOpenLimits }: { onOpenLimits(): void }) {
         )}
       </Card>
 
+      <Card title="Setup">
+        <p className="text-sm text-slate-600">{setupDone ? (setupNote || "This computer is set up for GreenTokens jobs.") : "Setup runs automatically the first time you connect."}</p>
+        <p className="mt-1 text-xs text-slate-500">Use Repair after updating your graphics driver, or if jobs fail to start. Disconnect first.</p>
+        <Button className="mt-3" disabled={preparing || participation !== "paused"} onClick={() => void repairSetup()}>
+          {preparing ? "Setting up… this can take several minutes" : "Repair setup"}
+        </Button>
+      </Card>
+
       <Card title="Reset">
         <p className="text-sm text-slate-600">Disconnects and clears this app's saved settings on this computer. You'll be asked to agree again on the next Connect.</p>
         {!confirmSignOut
           ? <Button variant="danger" className="mt-3" onClick={() => setConfirmSignOut(true)}>Reset app</Button>
           : (
             <div className="mt-3 flex flex-wrap gap-2">
-              <Button variant="danger" onClick={() => void reset()}>Yes, reset</Button>
+              <Button variant="danger" disabled={preparing || authenticating || participation === "starting" || participation === "pausing"} onClick={() => void reset()}>Yes, reset</Button>
               <Button onClick={() => setConfirmSignOut(false)}>Cancel</Button>
             </div>
           )}
