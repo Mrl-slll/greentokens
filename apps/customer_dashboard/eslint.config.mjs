@@ -1,3 +1,6 @@
+import next from "eslint-config-next";
+const config = [...next, { ignores: [".next/**", "node_modules/**"] }];
+export default config;
 import { defineConfig, globalIgnores } from "eslint/config";
 import nextVitals from "eslint-config-next/core-web-vitals";
 import nextTs from "eslint-config-next/typescript";
