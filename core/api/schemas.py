@@ -43,7 +43,7 @@ class BertTinyParams(StrictModel):
 
 
 # Approved workloads that independent provider computers run (they ask the API for work; no Ray there).
-PROVIDER_TEMPLATES = {"text_finetune_v1"}
+PROVIDER_TEMPLATES = {"text_finetune_v1", "distilbert_four_pc_test_v1"}
 # Templates allowed to run longer than the 300 s default limit.
 LONG_TEMPLATES = {"bert_tiny_ddp_v1", "text_finetune_v1"}
 APPROVED_TEXT_MODELS = ("prajjwal1/bert-tiny", "prajjwal1/bert-mini", "prajjwal1/bert-small")

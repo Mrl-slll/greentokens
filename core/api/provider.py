@@ -23,7 +23,7 @@ from core.jobs.dispatcher import finish_attempt
 
 LEASE = timedelta(seconds=90)
 PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "workloads" / "packages"
-WORKLOAD_PACKAGES = {"text_finetune_v1": "text_finetune"}  # approved template -> package folder
+WORKLOAD_PACKAGES = {"text_finetune_v1": "text_finetune", "distilbert_four_pc_test_v1": "distilbert_four_pc"}
 UPLOAD_KINDS = {"output", "model", "log"}
 DEVICE = Field(pattern=r"^[A-Za-z0-9-]{8,64}$")
 
@@ -145,6 +145,8 @@ def add_provider_routes(app, sessions, storage, identity):
             jobs = db.scalars(select(Job).where(Job.status == "QUEUED", Job.template_id.in_(PROVIDER_TEMPLATES))
                               .order_by(Job.created_at).with_for_update(skip_locked=True).limit(20)).all()
             for job in jobs:
+                if job.parameters.get("target_device_id") and job.parameters["target_device_id"] != device_id:
+                    continue
                 if job.cancel_requested or (job.parameters.get("require_gpu") and worker.gpu_count < 1):
                     continue
                 count = db.scalar(select(func.count()).select_from(Attempt).where(Attempt.job_id == job.id)) or 0
