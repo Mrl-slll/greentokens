@@ -45,11 +45,7 @@ export function HardwareScreen({ onContinue }: { onContinue(): void }) {
         );
       })()}
 
-<<<<<<< HEAD
       <Button variant="primary" onClick={onContinue}>Back to Home</Button>
-=======
-      <Button variant="primary" onClick={onContinue}>Continue to computing controls</Button>
->>>>>>> d5fa911 (Add GreenTokens Provider Windows desktop app (demo))
     </div>
   );
 }

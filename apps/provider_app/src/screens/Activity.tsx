@@ -1,17 +1,13 @@
 import { useProvider } from "../hooks/useProvider";
 import { Card, DemoBadge, Stat, StatusPill, formatDuration } from "../components/ui";
-<<<<<<< HEAD
 import { Sparkline } from "../components/Sparkline";
 import { useLiveUsage } from "../hooks/useLiveUsage";
 import { isTraining } from "../services/usage";
-=======
->>>>>>> d5fa911 (Add GreenTokens Provider Windows desktop app (demo))
 import type { JobStatus } from "../types/provider";
 
 const STATUS_TEXT: Record<JobStatus, string> = { running: "Running", completed: "Completed", stopped: "Stopped by pause" };
 
 export function ActivityScreen() {
-<<<<<<< HEAD
   const { activity, participation, service, hardware } = useProvider();
   const live = service.mode === "live";
   const { usage, history, unavailable } = useLiveUsage(live);
@@ -20,9 +16,6 @@ export function ActivityScreen() {
   const gpuValue = gpuCount === 0 ? "No GPU found" : usage?.gpuPercent == null ? "Not measured" : `${usage.gpuPercent}%`;
   const gpuNote = gpuCount === 0 ? undefined : usage?.gpuPercent == null ? "Not available on this computer" : "Today's training uses the processor only";
   const measuring = !usage || usage.warmingUp;
-=======
-  const { activity, participation } = useProvider();
->>>>>>> d5fa911 (Add GreenTokens Provider Windows desktop app (demo))
 
   return (
     <div className="space-y-6">
@@ -31,17 +24,12 @@ export function ActivityScreen() {
           <h1 className="text-2xl font-semibold">Activity</h1>
           <p className="text-slate-600">What your computer has done for GreenTokens.</p>
         </div>
-<<<<<<< HEAD
         {!live && <DemoBadge label="Demo data: simulated jobs" />}
-=======
-        <DemoBadge label="Demo data: simulated jobs" />
->>>>>>> d5fa911 (Add GreenTokens Provider Windows desktop app (demo))
       </header>
 
       {!activity ? <Card><p role="status">Loading activity…</p></Card> : (
         <>
           <div className="flex flex-wrap gap-3">
-<<<<<<< HEAD
             {live
               ? <StatusPill tone={training || activity.workerState === "working" ? "good" : participation === "active" ? "neutral" : "warn"}>{training || activity.workerState === "working" ? "Training a GreenTokens job now" : activity.workerState === "reconnecting" ? "Reconnecting to GreenTokens…" : participation === "active" ? "Connected, waiting for work" : "Not connected"}</StatusPill>
               : <>
@@ -79,30 +67,12 @@ export function ActivityScreen() {
                 <Stat label="Total computing time" value={formatDuration(activity.totalSeconds)} />
               </>
             )}
-=======
-            {activity.connection === "offline"
-              ? <StatusPill tone="bad">Disconnected (simulated)</StatusPill>
-              : <StatusPill tone="warn">Demo mode: not connected to GreenTokens</StatusPill>}
-            <StatusPill tone={participation === "active" ? "good" : "neutral"}>{participation === "active" ? "Available for jobs" : "Paused"}</StatusPill>
-          </div>
-
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <Stat label="Current job" value={activity.currentJob ? "1 running" : "None"} note={activity.currentJob?.name} />
-            <Stat label="Processor activity" value={`${activity.cpuPercent}%`} note="Simulated" />
-            <Stat label="Graphics activity" value={activity.gpuPercent === null ? "Not shared" : `${activity.gpuPercent}%`} note={activity.gpuPercent === null ? undefined : "Simulated"} />
-            <Stat label="Completed jobs" value={activity.completedCount} />
-            <Stat label="Total computing time" value={formatDuration(activity.totalSeconds)} />
->>>>>>> d5fa911 (Add GreenTokens Provider Windows desktop app (demo))
             <Stat label="Estimated earnings" value="Unavailable" note="Earnings are not offered during the pilot." />
           </div>
 
           <Card title="Recent jobs">
             {activity.history.length === 0 && !activity.currentJob ? (
-<<<<<<< HEAD
               <p className="text-slate-600">{live ? "Job history arrives in a later version. The live numbers above show work as it happens." : "No jobs yet. Connect to see activity here."}</p>
-=======
-              <p className="text-slate-600">No jobs yet. Press Start Computing to see activity here.</p>
->>>>>>> d5fa911 (Add GreenTokens Provider Windows desktop app (demo))
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-sm">

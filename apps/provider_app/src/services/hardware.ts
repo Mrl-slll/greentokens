@@ -36,11 +36,7 @@ export function normalizeHardware(raw: unknown): Hardware {
 
 export type HardwareDetector = () => Promise<HardwareResult>;
 
-<<<<<<< HEAD
 export const inDesktopApp = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-=======
-const inDesktopApp = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
->>>>>>> d5fa911 (Add GreenTokens Provider Windows desktop app (demo))
 
 export const detectHardware: HardwareDetector = async () => {
   if (!inDesktopApp()) {

@@ -3,8 +3,5 @@ dist/
 src-tauri/target/
 src-tauri/gen/
 *.tsbuildinfo
-<<<<<<< HEAD
 src-tauri/bin/
 __pycache__/
-=======
->>>>>>> d5fa911 (Add GreenTokens Provider Windows desktop app (demo))
