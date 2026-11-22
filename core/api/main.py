@@ -99,6 +99,8 @@ def create_app(settings=None, sessions=None, storage=None):
 
     add_auth_routes(app, sessions)
     add_provider_routes(app, sessions, storage, identity)
+    from core.api.shared_test import add_shared_test_routes
+    add_shared_test_routes(app, sessions, identity)
 
     @app.get("/health")
     def health():
