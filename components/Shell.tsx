@@ -5,17 +5,18 @@ import type { ReactNode } from "react";
 import { useApp } from "./AppProvider";
 import { DEV_USERS, type DevUser } from "@/lib/types";
 
-const NAV = [["/", "Dashboard"], ["/jobs/new", "New Job"], ["/jobs", "Recent Jobs"], ["/settings", "Settings"]] as const;
+const NAV = [["/", "Get started"], ["/docs", "Guides"], ["/train", "Train AI model"], ["/pipelines", "Pipelines & data"], ["/jobs/new", "Connection test"], ["/jobs", "Jobs"], ["/settings", "Settings"]] as const;
 
 export function Shell({ children }: { children: ReactNode }) {
   const path = usePathname(), { user, setUser, mode } = useApp();
+  if (path === "/demo") return <>{children}</>;
   return (
     <div className="min-h-screen bg-neutral-50 text-neutral-900 md:flex">
       <nav aria-label="Main" className="border-b border-neutral-200 bg-white p-4 md:min-h-screen md:w-56 md:border-b-0 md:border-r">
         <p className="mb-4 text-lg font-semibold text-emerald-700">GreenTokens</p>
         <ul className="flex gap-2 md:flex-col">
           {NAV.map(([href, label]) => {
-            const active = href === "/" ? path === "/" : path === href || (href === "/jobs" && path.startsWith("/jobs/") && path !== "/jobs/new");
+            const active = href === "/" ? path === "/" : path === href || (href === "/jobs" && path.startsWith("/jobs/") && path !== "/jobs/new") || (href === "/docs" && path.startsWith("/docs/"));
             return <li key={href}><Link href={href} aria-current={active ? "page" : undefined}
               className={`block rounded px-3 py-2 text-sm focus-visible:outline-2 focus-visible:outline-emerald-700 ${active ? "bg-emerald-50 font-semibold text-emerald-800" : "hover:bg-neutral-100"}`}>{label}</Link></li>;
           })}
@@ -30,7 +31,7 @@ export function Shell({ children }: { children: ReactNode }) {
             <select value={user} onChange={(e) => setUser(e.target.value as DevUser)} className="rounded border border-neutral-300 px-2 py-1">
               {DEV_USERS.map((u) => <option key={u}>{u}</option>)}</select></label>
         </header>
-        <main className="mx-auto max-w-3xl p-4 md:p-8" key={user /* remount pages on identity change: clears visible data, aborts requests */}>{children}</main>
+        <main className="mx-auto max-w-4xl p-4 md:p-8" key={`${user}:${mode}:${path}` /* clear stale job data when identity, mode, or route changes */}>{children}</main>
       </div>
     </div>
   );

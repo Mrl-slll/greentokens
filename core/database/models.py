@@ -31,6 +31,28 @@ class User(Base):
     role: Mapped[str] = mapped_column(String(20), default="customer")
 
 
+class ProviderLogin(Base):
+    __tablename__ = "provider_logins"
+    username: Mapped[str] = mapped_column(String(32), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), unique=True)
+    password_hash: Mapped[str] = mapped_column(String(256))
+
+
+class ProviderSession(Base):
+    __tablename__ = "provider_sessions"
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    device_id: Mapped[str] = mapped_column(String(64))
+    expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+
+
+class AuthThrottle(Base):
+    __tablename__ = "auth_throttles"
+    scope_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    window_start: Mapped[datetime] = mapped_column(DateTime)
+    attempts: Mapped[int] = mapped_column(Integer)
+
+
 class Worker(Base):
     __tablename__ = "workers"
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
@@ -41,6 +63,13 @@ class Worker(Base):
     ram_gb: Mapped[float] = mapped_column(Float)
     workload_class: Mapped[str] = mapped_column(String(32), default="trusted_cpu")
     last_seen_at: Mapped[datetime] = mapped_column(DateTime, default=now)
+    # "ray" = a node of the server's own Ray cluster; "provider" = an independent provider computer that
+    # connects outward to the API, registers once and asks for work (no Ray on the provider).
+    kind: Mapped[str] = mapped_column(String(16), default="ray")
+    owner_user_id: Mapped[str | None] = mapped_column(String(36))
+    gpu_count: Mapped[int] = mapped_column(Integer, default=0)
+    gpu_name: Mapped[str | None] = mapped_column(String(255))
+    capabilities: Mapped[dict | None] = mapped_column(JSON)
 
 
 class Job(Base):
@@ -77,6 +106,8 @@ class Attempt(Base):
     worker_pid: Mapped[int | None] = mapped_column(Integer)
     exit_code: Mapped[int | None] = mapped_column(Integer)
     error_code: Mapped[str | None] = mapped_column(String(64))
+    # Provider attempts: the provider must renew this; if it lapses the provider is considered lost.
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime)
 
 
 class Artifact(Base):

@@ -1,3 +1,5 @@
+> Scope: historical plan, handoff, or validation evidence. Feature statements and test results apply to its recorded stage, not the whole current system. Start with the [current developer guide](../README.md).
+
 # Milestone checklist
 
 - [x] 0: inspect runtime and document setup/dependencies.

@@ -1,0 +1,252 @@
+name: Provider app (Windows + Mac installers)
+
+on:
+  push:
+    branches:
+      - "**"
+    tags:
+      - "provider-v*"
+    paths:
+      - "apps/provider_app/**"
+      - ".github/workflows/provider-app.yml"
+      - ".github/provider-release-notes.md"
+      - ".github/provider-preview-release-notes.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: provider-app-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_VERSION: "0.13.8"
+  # This one test release is allowed without an Azure-verified signing identity.
+  # Future provider-v* tags still require the signed release path.
+  UNSIGNED_PREVIEW_TAG: "provider-v0.3.1"
+
+jobs:
+  windows:
+    runs-on: ${{ startsWith(github.ref, 'refs/tags/provider-v') && github.ref_name != 'provider-v0.3.1' && fromJSON(vars.WINDOWS_SIGNING_RUNNER || '"windows-latest"') || 'windows-latest' }}
+    environment: ${{ startsWith(github.ref, 'refs/tags/provider-v') && github.ref_name != 'provider-v0.3.1' && 'provider-signing' || 'provider-build' }}
+    env:
+      GT_WINDOWS_CERT_THUMBPRINT: ${{ vars.WINDOWS_CERT_THUMBPRINT }}
+      GT_WINDOWS_PUBLISHER: ${{ vars.WINDOWS_PUBLISHER }}
+    defaults:
+      run:
+        working-directory: apps/provider_app
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/provider_app/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/provider_app/src-tauri -> target
+
+      - name: Configure provider server (public address, no credentials)
+        shell: bash
+        env:
+          GT_PROVIDER_SERVER: ${{ vars.GT_PROVIDER_SERVER }}
+        run: |
+          # The one-time PC-hosted preview uses the address committed with this tag.
+          if [[ "$GITHUB_REF" == refs/tags/provider-v0.3.1 ]]; then unset GT_PROVIDER_SERVER; fi
+          node scripts/configure-server.mjs
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - name: Agent unit tests
+        working-directory: apps/provider_app/src-tauri/agent
+        run: python -m unittest -v test_gt_agent
+      - name: Bundle uv (pinned, checksum-verified)
+        shell: pwsh
+        env:
+          UV_SHA256: "529e78a9cec6cd7e3e014f7ecd8bda0c113969d4ed0f2efeedb85c30943325b8"
+        run: |
+          $zip = Join-Path $env:RUNNER_TEMP "uv.zip"
+          Invoke-WebRequest "https://github.com/astral-sh/uv/releases/download/$env:UV_VERSION/uv-x86_64-pc-windows-msvc.zip" -OutFile $zip
+          $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+          if ($hash -ne $env:UV_SHA256) { throw "uv checksum mismatch: $hash" }
+          $dir = Join-Path $env:RUNNER_TEMP "uv"
+          Expand-Archive $zip -DestinationPath $dir -Force
+          New-Item -ItemType Directory -Force src-tauri/bin | Out-Null
+          Copy-Item (Get-ChildItem $dir -Recurse -Filter uv.exe | Select-Object -First 1).FullName src-tauri/bin/uv.exe
+          & src-tauri/bin/uv.exe --version
+      - name: Rust unit tests (live usage)
+        working-directory: apps/provider_app/src-tauri
+        shell: bash
+        run: |
+          set +e
+          cargo test 2>&1 | tee ../rust-test.log
+          code=${PIPESTATUS[0]}
+          if [ "$code" -ne 0 ]; then
+            grep -n -E "^(error|test .* FAILED)|-->|panicked" ../rust-test.log | head -30 | while IFS= read -r line; do echo "::error::${line:0:400}"; done
+            tail -n 25 ../rust-test.log | while IFS= read -r line; do echo "::error::tail: ${line:0:400}"; done
+          fi
+          exit $code
+      - name: Require and configure release signing
+        if: startsWith(github.ref, 'refs/tags/provider-v') && github.ref_name != 'provider-v0.3.1'
+        shell: pwsh
+        run: ./scripts/configure-signing.ps1
+      - name: Build installer
+        shell: bash
+        run: |
+          set +e
+          signing_args=()
+          if [[ "$GITHUB_REF" == refs/tags/provider-v* && "$GITHUB_REF_NAME" != "$UNSIGNED_PREVIEW_TAG" ]]; then
+            signing_args=(--config src-tauri/tauri.signing.conf.json)
+          fi
+          npm run tauri build -- "${signing_args[@]}" 2>&1 | tee build.log
+          code=${PIPESTATUS[0]}
+          if [ "$code" -ne 0 ]; then
+            # Surface the failure as annotations so it is readable without opening the raw log.
+            grep -n -E "^(error|warning: unused)|-->|Error|failed" build.log | head -30 | while IFS= read -r line; do echo "::error::${line:0:400}"; done
+            tail -n 25 build.log | while IFS= read -r line; do echo "::error::tail: ${line:0:400}"; done
+          fi
+          exit "$code"
+      - name: Verify signatures and collect exactly one installer
+        shell: pwsh
+        run: ./scripts/collect-windows.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: provider-windows
+          if-no-files-found: error
+          path: |
+            apps/provider_app/out/GreenTokens-Provider-Setup.exe
+            apps/provider_app/out/Windows-SHA256SUMS.txt
+
+  macos:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: apps/provider_app
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/provider_app/package-lock.json
+
+      # One universal app runs on both Apple silicon and Intel Macs.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/provider_app/src-tauri -> target
+
+      - name: Configure provider server (public address, no credentials)
+        shell: bash
+        env:
+          GT_PROVIDER_SERVER: ${{ vars.GT_PROVIDER_SERVER }}
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/provider-v0.3.1 ]]; then unset GT_PROVIDER_SERVER; fi
+          node scripts/configure-server.mjs
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - name: Agent unit tests
+        working-directory: apps/provider_app/src-tauri/agent
+        run: python3 -m unittest -v test_gt_agent
+      - name: Bundle uv (pinned, checksum-verified, universal)
+        env:
+          UV_SHA256_ARM64: "6b71028a6b904f2ae3340ef52e595512de807d06c0a20eaef2f692581b246558"
+          UV_SHA256_X64: "a04c2ffeac28b2003a2c13caf538ab425fcd7def3e4a41571f4a8fb370a66af3"
+        run: |
+          set -euo pipefail
+          for arch in aarch64 x86_64; do
+            curl -fsSL -o "$RUNNER_TEMP/uv-$arch.tar.gz" "https://github.com/astral-sh/uv/releases/download/$UV_VERSION/uv-$arch-apple-darwin.tar.gz"
+            mkdir -p "$RUNNER_TEMP/uv-$arch" && tar -xzf "$RUNNER_TEMP/uv-$arch.tar.gz" -C "$RUNNER_TEMP/uv-$arch" --strip-components=1
+          done
+          echo "$UV_SHA256_ARM64  $RUNNER_TEMP/uv-aarch64.tar.gz" | shasum -a 256 -c -
+          echo "$UV_SHA256_X64  $RUNNER_TEMP/uv-x86_64.tar.gz" | shasum -a 256 -c -
+          mkdir -p src-tauri/bin
+          lipo -create -output src-tauri/bin/uv "$RUNNER_TEMP/uv-aarch64/uv" "$RUNNER_TEMP/uv-x86_64/uv"
+          chmod +x src-tauri/bin/uv
+          # lipo drops signatures, and Apple silicon refuses to run unsigned binaries.
+          codesign --force -s - src-tauri/bin/uv
+          src-tauri/bin/uv --version
+          lipo -info src-tauri/bin/uv
+      - name: Rust unit tests (live usage)
+        working-directory: apps/provider_app/src-tauri
+        shell: bash
+        run: |
+          set +e
+          cargo test 2>&1 | tee ../rust-test.log
+          code=${PIPESTATUS[0]}
+          if [ "$code" -ne 0 ]; then
+            grep -n -E "^(error|test .* FAILED)|-->|panicked" ../rust-test.log | head -30 | while IFS= read -r line; do echo "::error::${line:0:400}"; done
+            tail -n 25 ../rust-test.log | while IFS= read -r line; do echo "::error::tail: ${line:0:400}"; done
+          fi
+          exit $code
+      - name: Build app and disk image
+        run: |
+          set +e
+          npm run tauri build -- --target universal-apple-darwin 2>&1 | tee build.log
+          code=${PIPESTATUS[0]}
+          if [ "$code" -ne 0 ]; then
+            grep -n -E "^(error|warning: unused)|-->|Error|failed" build.log | head -30 | while IFS= read -r line; do echo "::error::${line:0:400}"; done
+            tail -n 25 build.log | while IFS= read -r line; do echo "::error::tail: ${line:0:400}"; done
+          fi
+          exit "$code"
+      - name: Collect disk image
+        run: |
+          mkdir -p out
+          set -euo pipefail
+          images=(src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg)
+          test "${#images[@]}" -eq 1 && test -f "${images[0]}"
+          dmg="${images[0]}"
+          cp "$dmg" out/GreenTokens-Provider-macOS.dmg
+          ls -l out
+          # Confirm the bundled tools survived packaging.
+          hdiutil attach -nobrowse -readonly -mountpoint "$RUNNER_TEMP/dmg" out/GreenTokens-Provider-macOS.dmg >/dev/null
+          app=$(ls -d "$RUNNER_TEMP"/dmg/*.app | head -1)
+          ls -l "$app/Contents/Resources/bin" "$app/Contents/Resources/agent" || true
+          codesign -dv "$app" 2>&1 | head -5 || true
+          hdiutil detach "$RUNNER_TEMP/dmg" >/dev/null
+      - uses: actions/upload-artifact@v4
+        with:
+          name: provider-macos
+          if-no-files-found: error
+          path: apps/provider_app/out/GreenTokens-Provider-macOS.dmg
+
+  release:
+    needs: [windows, macos]
+    if: startsWith(github.ref, 'refs/tags/provider-v')
+    runs-on: ubuntu-latest
+    environment: provider-release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+      - name: Prepare checksums and release instructions
+        env:
+          WINDOWS_PUBLISHER: ${{ vars.WINDOWS_PUBLISHER }}
+        run: python apps/provider_app/scripts/publish-release.py prepare
+      - name: Publish verified draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: python apps/provider_app/scripts/publish-release.py publish

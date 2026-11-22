@@ -1,6 +1,13 @@
 import { UPSTREAM, asDevUser, match } from "@/lib/proxyPolicy";
 
 async function handle(req: Request, ctx: { params: Promise<{ path: string[] }> }) {
+  const origin = req.headers.get("origin");
+  // Next.js can normalize req.url to localhost even when the browser uses 127.0.0.1.
+  const requestUrl = new URL(req.url);
+  const expectedOrigin = `${requestUrl.protocol}//${req.headers.get("host") ?? requestUrl.host}`;
+  if ((origin && origin !== expectedOrigin) || req.headers.get("sec-fetch-site") === "cross-site") {
+    return Response.json({ detail: "Cross-origin request denied" }, { status: 403 });
+  }
   const { path } = await ctx.params;
   const limit = match(req.method, path);
   if (limit === null) return Response.json({ detail: "Not found" }, { status: 404 });

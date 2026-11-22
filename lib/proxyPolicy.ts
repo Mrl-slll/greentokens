@@ -2,7 +2,7 @@ import { DEV_USERS, type DevUser } from "./types";
 const UUID = "[0-9a-f-]{36}";
 const RULES: { method: string; re: RegExp; maxBody: number }[] = [
   { method: "GET", re: /^health$/, maxBody: 0 },
-  { method: "POST", re: /^v1\/jobs$/, maxBody: 8192 },
+  { method: "POST", re: /^v1\/jobs$/, maxBody: 16_384 }, // 1,000 signed integers plus request metadata
   { method: "GET", re: new RegExp(`^v1/jobs/${UUID}$`), maxBody: 0 },
   { method: "GET", re: new RegExp(`^v1/jobs/${UUID}/result$`), maxBody: 0 },
   { method: "POST", re: new RegExp(`^v1/jobs/${UUID}/cancel$`), maxBody: 0 },
