@@ -32,3 +32,27 @@ Do not use volume deletion as routine reset/shutdown. Deleting containers while 
 There are currently no Compose restart policies or declarative healthchecks. The Python launcher performs database/S3 readiness checks. Docker Desktop normally depends on the desktop user's session for automatic startup, so this is not yet a tested unattended boot deployment. See [availability roadmap](../docs/roadmap.md).
 
 Backups need both database metadata and object data; experiment relay files require separate handling. Recovery must be tested, not inferred from the existence of a volume.
+
+## Provider-only API and job recovery on Linux
+
+Once the database and object store are ready on the operator host, the API and
+dispatcher can run as separate supervised processes. Both need the existing
+database and S3 configuration from the service environment and
+`GT_MODE=provider-only`. This mode requires bearer authentication on protected
+routes even for loopback requests, and the dispatcher recovers provider leases
+without connecting to Ray.
+
+After backing up the existing data and checking that the external data drive is
+mounted, apply the schema with `python -m alembic upgrade head` from the checkout.
+Use the backend virtual environment for each service command:
+
+```sh
+python -m uvicorn core.api.main:create_app --factory --host 127.0.0.1 --port 8000 --no-proxy-headers --no-access-log
+python -m core.jobs.dispatcher
+```
+
+Run one dispatcher for the database. For this mode, the expected
+`/health` fields include `"authentication": "bearer"` and
+`"provider_auth": "password-v1"`. The local development launcher selects its
+own development settings. See the [Pi migration plan](../docs/server-migration-plan.md)
+for storage, service startup, and tunnel cutover.

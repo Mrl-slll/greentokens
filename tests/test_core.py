@@ -113,6 +113,22 @@ class CoreTests(unittest.TestCase):
             # Local dev stub still works without proxy headers.
             self.assertEqual(c.get("/v1/usage", headers=self.alice).status_code, 200)
 
+    def test_provider_only_server(self):
+        job_id, attempt = self.claimed()
+        self.settings.provider_only = True
+        self.settings.api_keys = {hashlib.sha256(b"test-customer").hexdigest(): "alice"}
+        with TestClient(create_app(self.settings, self.sessions, self.storage)) as client:
+            self.assertEqual(client.get("/health").json()["authentication"], "bearer")
+            self.assertEqual(client.get("/v1/usage", headers=self.alice).status_code, 401)
+            auth = {"Authorization": "Bearer test-customer"}
+            self.assertEqual(client.get("/v1/usage", headers=auth).status_code, 200)
+            body = {"template_id": "sum_numbers_v1", "parameters": {"values": [1]}, "idempotency_key": "new"}
+            self.assertEqual(client.post("/v1/jobs", json=body, headers=auth).status_code, 422)
+        Dispatcher(self.sessions, None, self.storage).tick()
+        with self.sessions() as db:
+            self.assertEqual(db.get(Attempt, attempt.id).status, "DISPATCHING")
+            self.assertEqual(db.get(Job, job_id).status, "DISPATCHING")
+
     def test_heartbeat_registers_every_live_node(self):
         class Nodes:
             def nodes(self):

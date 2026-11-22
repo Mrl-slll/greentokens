@@ -35,6 +35,7 @@ def create_app(settings=None, sessions=None, storage=None):
         _, sessions = database(settings)
     storage = storage or Storage(settings)
     app = FastAPI(title="GreenTokens local development API", version="0.2.0")
+    provider_only = getattr(settings, "provider_only", False)
     provider_origins = ["tauri://localhost", "http://tauri.localhost", "https://tauri.localhost", "http://127.0.0.1:1420"]
     app.add_middleware(CORSMiddleware, allow_origins=provider_origins,
                        allow_methods=["POST"], allow_headers=["Content-Type", "Authorization"])
@@ -81,7 +82,7 @@ def create_app(settings=None, sessions=None, storage=None):
                 if user is None:
                     raise HTTPException(401, "Invalid API key")
                 return user
-            if proxied(request):
+            if provider_only or proxied(request):
                 # Tunneled requests arrive from loopback; never let them use the dev stub.
                 raise HTTPException(401, "API key required")
             # Deliberate development stub, NOT authentication. Configuration blocks production.
@@ -106,7 +107,8 @@ def create_app(settings=None, sessions=None, storage=None):
     def health():
         with sessions() as db:
             db.execute(select(1))
-        return {"status": "ok", "authentication": "development-stub", "provider_auth": "password-v1"}
+        return {"status": "ok", "authentication": "bearer" if provider_only else "development-stub",
+                "provider_auth": "password-v1"}
 
     @app.post("/v1/artifacts", status_code=201)
     async def upload(request: Request, user=Depends(identity)):
@@ -150,6 +152,8 @@ def create_app(settings=None, sessions=None, storage=None):
                 if old.request_hash != digest:
                     raise HTTPException(409, "Idempotency key already used with different content")
                 return {"job_id": old.id, "status": old.status}
+            if provider_only and body.template_id not in PROVIDER_TEMPLATES:
+                raise HTTPException(422, "This server accepts provider workloads only")
             if body.input_artifact_id:
                 artifact = owned(db, Artifact, body.input_artifact_id, user)
                 if artifact.kind != "input":

@@ -49,14 +49,19 @@ else {
     }
     Set-Content $urlFile $url
     Write-Host "    Public address: $url"
-    Write-Host "    NOTE: this address is new. Configure and rebuild the provider app for this address before sending its installer. Accounts and passwords stay the same."
+    Write-Host "    New temporary address for this PC's test session."
 }
 
-# Embed this PC's public address in the provider app source and its exact desktop CSP.
+# Refresh a temporary preview origin while preserving a configured stable server.
 $node = Join-Path $root ".tools\node-v24.22.3-win-x64\node.exe"
 if (-not (Test-Path $node)) { $node = (Get-Command node -ErrorAction Stop).Source }
-& $node (Join-Path $root "apps\provider_app\scripts\configure-server.mjs") $url
-if ($LASTEXITCODE -ne 0) { throw "Could not configure the provider app server address." }
+$providerOrigin = (Get-Content -Raw (Join-Path $root "apps\provider_app\provider-server.json") | ConvertFrom-Json).url
+if (([uri]$providerOrigin).Host.EndsWith(".trycloudflare.com")) {
+    & $node (Join-Path $root "apps\provider_app\scripts\configure-server.mjs") $url
+    if ($LASTEXITCODE -ne 0) { throw "Could not configure the provider app server address." }
+} else {
+    Write-Host "Keeping the provider app's configured server: $providerOrigin"
+}
 
 # 3. Point your Databricks notebooks at it.
 Write-Host "3/3 Updating your Databricks secret greentokens/url..."
@@ -65,5 +70,5 @@ Write-Host "3/3 Updating your Databricks secret greentokens/url..."
 Write-Host ""
 Write-Host "Ready. Server address: $url"
 Write-Host "Providers create their own accounts in the new app. No invite codes are needed."
-Write-Host "Rebuild the installer if its server address differs from the one above."
+Write-Host "The public address above is for this PC's test backend."
 Write-Host "See who is connected:                    .\.venv\Scripts\python.exe -m scripts.providers"

@@ -26,21 +26,23 @@ class Settings:
     artifact_ttl_seconds: int = 86400
     max_bytes: int = 65536
     api_keys: dict = field(default_factory=dict, repr=False)  # sha256(key) -> existing user id
+    provider_only: bool = False
 
     def reload_api_keys(self):
         self.api_keys = load_api_keys()
 
     @classmethod
     def from_env(cls):
-        # Provider logins exist, but customer dev identities and infrastructure remain development-only.
-        if os.environ.get("GT_MODE") != "development":
-            raise RuntimeError("Only explicit GT_MODE=development is supported; production is disabled")
+        mode = os.environ.get("GT_MODE")
+        if mode not in {"development", "provider-only"}:
+            raise RuntimeError("Set GT_MODE to development or provider-only")
         result = cls(
             database_url=os.environ["GT_DATABASE_URL"],
             s3_access_key=os.environ["GT_S3_ACCESS_KEY"],
             s3_secret_key=os.environ["GT_S3_SECRET_KEY"],
             s3_endpoint=os.environ.get("GT_S3_ENDPOINT", "http://127.0.0.1:8333"),
             ray_endpoint=os.environ.get("GT_RAY_ENDPOINT", "http://127.0.0.1:8265"),
+            provider_only=mode == "provider-only",
         )
         result.api_keys = load_api_keys()
         for value in (result.s3_endpoint, result.ray_endpoint):

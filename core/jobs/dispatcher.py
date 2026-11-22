@@ -9,7 +9,6 @@ from core.artifacts.storage import ArtifactError, Storage
 from core.config import Settings
 from core.database.models import Artifact, Attempt, Job, Usage, Worker, now, uid
 from core.database.session import database
-from core.ray_runtime.client import RayJobs
 
 TERMINAL = {"SUCCEEDED", "FAILED", "CANCELLED"}
 PROVIDER_MAX_ATTEMPTS = 3  # a job whose provider disappears is queued again, at most this many times
@@ -160,16 +159,24 @@ class Dispatcher:
 
     def tick(self):
         with self.sessions() as db:
-            ids = list(db.scalars(select(Attempt.id).where(Attempt.status.not_in(TERMINAL))))
+            active = select(Attempt.id).where(Attempt.status.not_in(TERMINAL))
+            if self.ray is None:
+                active = active.where(Attempt.ray_submission_id.startswith("prov-"))
+            ids = list(db.scalars(active))
         for attempt_id in ids:
             self.reconcile(attempt_id)
-        self.claim()
+        if self.ray is not None:
+            self.claim()
 
 
 def main():
     settings = Settings.from_env()
     engine, sessions = database(settings)
-    dispatcher = Dispatcher(sessions, RayJobs(settings.ray_endpoint), Storage(settings))
+    ray_jobs = None
+    if not settings.provider_only:
+        from core.ray_runtime.client import RayJobs
+        ray_jobs = RayJobs(settings.ray_endpoint)
+    dispatcher = Dispatcher(sessions, ray_jobs, Storage(settings))
     # This connection owns the MySQL advisory lock for the whole process lifetime.
     with engine.connect() as lock:
         if lock.execute(text("SELECT GET_LOCK('greentokens-dispatcher', 0)")).scalar() != 1:
